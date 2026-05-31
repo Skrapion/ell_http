@@ -12,20 +12,25 @@ pub struct Replacement {
     pub replacement: usize,
 }
 
+#[macro_export]
+macro_rules! replacements {
+    ($($rva:expr => $rep:expr),* $(,)?) => {
+        vec![
+            $(
+                Replacement {
+                    original_rva: $rva,
+                    replacement: $rep as usize,
+                }
+            ),*
+        ]
+    };
+}
+
 pub fn replacements() -> Vec<Replacement> {
-    vec![
-        Replacement {
-            original_rva: 0x0095CC30,
-            replacement: EllHttpOpen as usize,
-        },
-        Replacement {
-            original_rva: 0x0095CC88,
-            replacement: EllHttpSetStatusCallback as usize,
-        },
-        Replacement {
-            original_rva: 0x0095CC18,
-            replacement: EllHttpConnect as usize,
-        },
+    replacements![
+        0x0095CC30 => EllHttpOpen,
+        0x0095CC88 => EllHttpSetStatusCallback,
+        0x0095CC18 => EllHttpConnect,
     ]
 }
 
