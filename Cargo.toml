@@ -1,0 +1,12 @@
+[package]
+name = "ell_http"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Networking_WinHttp", "Win32_System", "Win32_System_Memory", "Win32_System_LibraryLoader", "Win32_System_SystemServices"] }
+windows-core = "0.62.2"
+
