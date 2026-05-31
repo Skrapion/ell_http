@@ -1,15 +1,32 @@
 mod log;
 mod interfaces;
 
+use std::ptr::*;
+
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::System::Memory::*;
+use windows::Win32::System::ProcessStatus::*;
 use windows::Win32::System::SystemServices::*;
+use windows::Win32::System::Threading::*;
 
 use interfaces::*;
 
-///////////////// Patching
+#[unsafe(no_mangle)]
+pub extern "system" fn DllMain(
+    _hinst: HINSTANCE,
+    reason: u32,
+    _: *mut core::ffi::c_void,
+) -> BOOL {
+    if reason == DLL_PROCESS_ATTACH {
+        run_patch();
+    }
+
+    TRUE
+}
+
+/// Patching
 unsafe fn patch_call(
     call_addr: *mut u8,
     target_addr: usize,
@@ -51,7 +68,20 @@ fn run_patch()
     unsafe {
         let exe = GetModuleHandleA(None).unwrap();
         let start = exe.0 as *const u8;
-        let end = 0x1000000 as *const u8;//0x1173FFF as *const u8;
+
+        let mut info = MODULEINFO {
+            lpBaseOfDll: null_mut(),
+            SizeOfImage: 0,
+            EntryPoint: null_mut()
+        };
+
+        let _ = GetModuleInformation(
+            GetCurrentProcess(),
+            exe,
+            &mut info,
+            std::mem::size_of::<MODULEINFO>() as u32,
+        );
+        let end = start.wrapping_add(info.SizeOfImage.try_into().unwrap());
 
         let mut p = start;
 
@@ -81,15 +111,3 @@ fn run_patch()
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn DllMain(
-    _hinst: HINSTANCE,
-    reason: u32,
-    _: *mut core::ffi::c_void,
-) -> BOOL {
-    if reason == DLL_PROCESS_ATTACH {
-        run_patch();
-    }
-
-    TRUE
-}

@@ -7,6 +7,30 @@ use windows::core::*;
 #[allow(dead_code)]
 const NO_PARAMS: &[(&str, String)] = &[];
 
+#[macro_export]
+macro_rules! log {
+    ($func_name:expr, $($param_name:ident = $param_val:expr),* $(,)?) => {
+        {
+            let params = vec![
+                $(
+                    (stringify!($param_name), format!("{:?}", $param_val)),
+                )*
+            ];
+            log_function_call($func_name, &params);
+        }
+    };
+}
+
+pub fn lp2str(ptr: *const u16) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    
+    unsafe {
+        PCWSTR::from_raw(ptr).display().to_string()
+    }
+}
+
 pub fn log_function_call(func_name: &str, params: &[(&str, String)]) {
     let mut file = match OpenOptions::new()
         .create(true)
@@ -38,28 +62,3 @@ pub fn log_function_call(func_name: &str, params: &[(&str, String)]) {
         timestamp, func_name, joined_params
     );
 }
-
-#[macro_export]
-macro_rules! log {
-    ($func_name:expr, $($param_name:ident = $param_val:expr),* $(,)?) => {
-        {
-            let params = vec![
-                $(
-                    (stringify!($param_name), format!("{:?}", $param_val)),
-                )*
-            ];
-            log_function_call($func_name, &params);
-        }
-    };
-}
-
-pub fn lp2str(ptr: *const u16) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    
-    unsafe {
-        PCWSTR::from_raw(ptr).display().to_string()
-    }
-}
-
