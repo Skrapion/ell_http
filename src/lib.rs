@@ -70,7 +70,7 @@ fn run_patch()
                     if destination as usize == repl.original_rva {
                         patch_call(
                             p as *mut u8,
-                            repl.replacement as usize,
+                            repl.replacement,
                         );
                     }
                 }
@@ -82,7 +82,7 @@ fn run_patch()
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn DllMain(
+pub extern "system" fn DllMain(
     _hinst: HINSTANCE,
     reason: u32,
     _: *mut core::ffi::c_void,

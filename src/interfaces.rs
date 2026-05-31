@@ -30,14 +30,14 @@ pub fn replacements() -> Vec<Replacement> {
 }
 
 /// Interfaces
-type LPCWSTR = *const u16;
+type Lpcwstr = *const u16;
 
 #[unsafe(no_mangle)]
 pub extern "system" fn EllHttpOpen(
-    pszagentw: LPCWSTR,
+    pszagentw: Lpcwstr,
     dwaccesstype: WINHTTP_ACCESS_TYPE,
-    pszproxyw: LPCWSTR,
-    pszproxybypassw: LPCWSTR,
+    pszproxyw: Lpcwstr,
+    pszproxybypassw: Lpcwstr,
     dwflags: u32,
 ) -> *mut c_void
 {
@@ -93,7 +93,7 @@ pub extern "system" fn EllHttpSetStatusCallback(
 #[unsafe(no_mangle)]
 pub extern "system" fn EllHttpConnect(
     hsession: *mut c_void,
-    pswzservername: LPCWSTR,
+    pswzservername: Lpcwstr,
     nserverport: u16,
     dwreserved: u32,
 ) -> *mut c_void

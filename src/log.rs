@@ -10,7 +10,6 @@ const NO_PARAMS: &[(&str, String)] = &[];
 pub fn log_function_call(func_name: &str, params: &[(&str, String)]) {
     let mut file = match OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .open("log.txt")
     {
