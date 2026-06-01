@@ -11,6 +11,7 @@ use windows::Win32::System::ProcessStatus::*;
 use windows::Win32::System::SystemServices::*;
 use windows::Win32::System::Threading::*;
 
+use log::*;
 use interfaces::*;
 
 #[unsafe(no_mangle)]
@@ -21,6 +22,7 @@ pub extern "system" fn DllMain(
 ) -> BOOL {
     if reason == DLL_PROCESS_ATTACH {
         run_patch();
+        spawn_logger();
     }
 
     TRUE

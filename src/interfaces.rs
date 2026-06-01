@@ -1,5 +1,7 @@
 use std::os::raw::*;
 
+use anyhow::Result;
+use turso::*;
 use windows::core::*;
 use windows::Win32::Networking::WinHttp::*;
 
@@ -34,8 +36,41 @@ pub fn replacements() -> Vec<Replacement> {
     ]
 }
 
+pub async fn db_setup(conn: &Connection) -> Result<()> {
+    ell_http_open_setup(conn).await?;
+    ell_http_set_status_callback_setup(conn).await?;
+    ell_http_connect_setup(conn).await?;
+    Ok(())
+}
+
 /// Interfaces
 type Lpcwstr = *const u16;
+
+pub async fn ell_http_open_setup(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS http_open (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at      INTEGER NOT NULL,
+            agent           TEXT NOT NULL,
+            access_type     INTEGER NOT NULL,
+            proxy           TEXT NOT NULL,
+            proxy_bypass    TEXT NOT NULL,
+            flags           INTEGER NOT NULL,
+            out_handle      INTEGER NOT NULL,
+            consumed        BOOLEAN DEFAULT FALSE NOT NULL
+        )",
+        (),
+    )
+    .await?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_out_handle ON http_open(out_handle)",
+        (),
+    )
+    .await?;
+
+    Ok(())
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn EllHttpOpen(
@@ -47,7 +82,7 @@ pub extern "system" fn EllHttpOpen(
 ) -> *mut c_void
 {
     unsafe {
-        let result = WinHttpOpen(
+        let out_handle = WinHttpOpen(
             PCWSTR::from_raw(pszagentw), 
             dwaccesstype,
             PCWSTR::from_raw(pszproxyw),
@@ -55,20 +90,40 @@ pub extern "system" fn EllHttpOpen(
             dwflags);
 
         log!(
-            "WinHttpOpen",
-            pszagentw = lp2str(pszagentw), 
-            dwaccesstype = dwaccesstype,
-            pszproxyw = lp2str(pszproxyw),
-            pszproxybypassw = lp2str(pszproxybypassw),
-            result = result
+            "http_open",
+            agent = lp2str(pszagentw), 
+            access_type = Value::Integer(dwaccesstype.0.into()),
+            proxy = lp2str(pszproxyw),
+            flags = Value::Integer(dwflags.into()),
+            proxy_bypass = lp2str(pszproxybypassw),
+            out_handle = Value::Integer((out_handle as u32).into())
         );
 
-        result
+        out_handle 
     }
 }
 
+pub async fn ell_http_set_status_callback_setup(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS http_set_status_callback(
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at          INTEGER NOT NULL,
+            hinternet           INTEGER NOT NULL,
+            internet_callback   INTEGER,
+            notification_flags  INTEGER NOT NULL,
+            reserved            INTEGER NOT NULL,
+            out_callback        INTEGER,
+            consumed            BOOLEAN DEFAULT FALSE NOT NULL
+        )",
+        (),
+    )
+    .await?;
+
+    Ok(())
+} 
+
 #[unsafe(no_mangle)]
-pub extern "system" fn EllHttpSetStatusCallback(
+pub extern "system" fn EllHttpSetStatusCallback (
     hinternet: *mut c_void,
     lpfninternetcallback: WINHTTP_STATUS_CALLBACK,
     dwnotificationflags: u32,
@@ -76,23 +131,48 @@ pub extern "system" fn EllHttpSetStatusCallback(
 ) -> WINHTTP_STATUS_CALLBACK 
 {
     unsafe {
-        let result = WinHttpSetStatusCallback(
+        let out_callback = WinHttpSetStatusCallback(
             hinternet,
             lpfninternetcallback,
             dwnotificationflags,
             dwreserved
         );
 
-        log!("WinHttpSetStatusCallback",
-            hinternet = hinternet,
-            lpfninternetcallback = lpfninternetcallback,
-            dwnotificationflags = dwnotificationflags,
-            dwreserved = dwreserved,
-            result = result
+        log!("http_set_status_callback",
+            hinternet = Value::Integer((hinternet as u32).into()),
+            internet_callback = match lpfninternetcallback {
+                Some(callback) => Value::Integer(callback as usize as i64),
+                None => Value::Null
+            },
+            notification_flags = Value::Integer(dwnotificationflags.into()),
+            reserved = Value::Integer((dwreserved as u32).into()),
+            out_callback = match out_callback {
+                Some(callback) => Value::Integer(callback as usize as i64),
+                None => Value::Null
+            }
         );
 
-        result
+        out_callback
     }
+}
+
+pub async fn ell_http_connect_setup(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS http_connect(
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at          INTEGER NOT NULL,
+            hsession            INTEGER NOT NULL,
+            server_name         TEXT NOT NULL,
+            server_port         INTEGER NOT NULL,
+            reserved            INTEGER NOT NULL,
+            out_connection      INTEGER NOT NULL,
+            consumed            BOOLEAN DEFAULT FALSE NOT NULL
+        )",
+        (),
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[unsafe(no_mangle)]
@@ -104,21 +184,21 @@ pub extern "system" fn EllHttpConnect(
 ) -> *mut c_void
 {
     unsafe {
-        let result = WinHttpConnect(
+        let connection = WinHttpConnect(
             hsession,
             PCWSTR::from_raw(pswzservername),
             nserverport,
             dwreserved
         );
 
-        log!("WinHttpConnect",
-            hsession = hsession,
-            pswzservername = lp2str(pswzservername),
-            nserverport = nserverport,
-            dwreserved = dwreserved,
-            result = result
+        log!("http_connect",
+            hsession = Value::Integer((hsession as u32).into()),
+            server_name = lp2str(pswzservername),
+            server_port = Value::Integer(nserverport.into()),
+            reserved = Value::Integer(dwreserved.into()),
+            out_connection = Value::Integer((connection as u32).into())
         );
 
-        result
+        connection
     }
 }

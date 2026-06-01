@@ -2,36 +2,122 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::SystemTime;
 
+use anyhow::Result;
+use chrono::Local;
+use turso::*;
 use windows::core::*;
 
-#[allow(dead_code)]
-const NO_PARAMS: &[(&str, String)] = &[];
+use crate::interfaces::*;
+
+pub struct LogItem {
+    pub table: String,
+    pub args: Vec<(String, turso::Value)>,
+}
+
+pub static LOG_QUEUE: once_cell::sync::Lazy<crossbeam::queue::SegQueue<LogItem>> =
+    once_cell::sync::Lazy::new(crossbeam::queue::SegQueue::new);
+
+pub type SqlArgs = Vec<turso::Value>;
 
 #[macro_export]
 macro_rules! log {
-    ($func_name:expr, $($param_name:ident = $param_val:expr),* $(,)?) => {
-        {
-            let params = vec![
-                $(
-                    (stringify!($param_name), format!("{:?}", $param_val)),
-                )*
-            ];
-            log_function_call($func_name, &params);
-        }
-    };
+    ($table:expr, $($col:ident = $val:expr),* $(,)?) => {{
+        let params = vec![
+            $(
+                (stringify!($col).to_string(), $val),
+            )*
+        ];
+
+        LOG_QUEUE.push(LogItem{table: $table.to_string(), args: params});
+    }};
 }
 
-pub fn lp2str(ptr: *const u16) -> String {
+pub fn lp2str(ptr: *const u16) -> turso::Value {
     if ptr.is_null() {
-        return String::new();
+        return Value::Text(String::new());
     }
     
     unsafe {
-        PCWSTR::from_raw(ptr).display().to_string()
+        Value::Text(PCWSTR::from_raw(ptr).display().to_string())
     }
 }
 
-pub fn log_function_call(func_name: &str, params: &[(&str, String)]) {
+async fn create_db_conn() -> Result<(turso::Database, turso::Connection)> {
+    let timestamp = Local::now().format("%Y-%m-%dT%H-%M-%S");
+
+    let db = Builder::new_local(&format!("capture_{}.db", timestamp))
+        .build()
+        .await?;
+
+    let conn = db.connect()?;
+    db_setup(&conn).await?;
+
+    Ok((db, conn))
+}
+
+pub fn spawn_logger() {
+    std::thread::spawn(|| {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            let (_db, conn) = create_db_conn()
+                .await.unwrap_or_else(|err| {
+                    panic!("Failed to connect to database: {}", err);
+                });
+
+            loop {
+                while let Some(item) = LOG_QUEUE.pop() {
+                    log_item(&conn, item).await;
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+    });
+}
+
+async fn log_item(conn: &Connection, item: LogItem) {
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mut file_line = format!("{}: created_at: {}", item.table, timestamp).to_string();
+
+    let mut cols = String::from("created_at");
+    let mut placeholders = String::from("?");
+    let mut args: SqlArgs = Vec::new();
+    args.push(Value::Integer(timestamp.try_into().unwrap()));
+
+    for arg in item.args {
+        file_line.push_str(&format!(", {}={:?}", arg.0, arg.1).to_string());
+        cols.push_str(&format!(", {}", arg.0).to_string());
+        placeholders.push_str(", ?");
+        args.push(arg.1);
+    }
+
+    output_to_file(&file_line);
+
+    let sql = format!("INSERT INTO {} ({}) VALUES ({})",
+        item.table,
+        cols,
+        placeholders).to_string();
+
+    let _ = conn.execute(
+        &sql,
+        turso::params_from_iter(args),
+    )
+    .await
+    .unwrap_or_else(|err| {
+        error_to_file(&err.to_string());
+        0
+    });
+}
+
+pub fn output_to_file(s: &str) {
     let mut file = match OpenOptions::new()
         .create(true)
         .append(true)
@@ -41,24 +127,9 @@ pub fn log_function_call(func_name: &str, params: &[(&str, String)]) {
         Err(_) => return, // Fail silently to prevent crashing your DLL
     };
 
-    // Get a simple timestamp
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let _ = writeln!(file, "{}", s);
+}
 
-    // Format the parameters into a readable string: [param1: val1, param2: val2]
-    let param_string: Vec<String> = params
-        .iter()
-        .map(|(name, val)| format!("{}: {}", name, val))
-        .collect();
-    
-    let joined_params = param_string.join(", ");
-
-    // Write to file: [1716943521] Called: MyFunction | Params: [a: 10, b: "test"]
-    let _ = writeln!(
-        file,
-        "[{}] Called: {} | Params: [{}]",
-        timestamp, func_name, joined_params
-    );
+pub fn error_to_file(err: &str) {
+    output_to_file(&format!("ERROR: {}", err).to_string());
 }
