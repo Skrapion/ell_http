@@ -554,6 +554,7 @@ dependencies = [
  "turso",
  "windows",
  "windows-core",
+ "windows-strings",
 ]
 
 [[package]]

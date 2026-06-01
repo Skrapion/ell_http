@@ -33,6 +33,7 @@ pub fn replacements() -> Vec<Replacement> {
         0x0095CC30 => EllHttpOpen,
         0x0095CC88 => EllHttpSetStatusCallback,
         0x0095CC18 => EllHttpConnect,
+        0x0095CC38 => EllHttpOpenRequest,
     ]
 }
 
@@ -40,6 +41,7 @@ pub async fn db_setup(conn: &Connection) -> Result<()> {
     ell_http_open_setup(conn).await?;
     ell_http_set_status_callback_setup(conn).await?;
     ell_http_connect_setup(conn).await?;
+    ell_http_open_request(conn).await?;
     Ok(())
 }
 
@@ -184,7 +186,7 @@ pub extern "system" fn EllHttpConnect(
 ) -> *mut c_void
 {
     unsafe {
-        let connection = WinHttpConnect(
+        let out_connection = WinHttpConnect(
             hsession,
             PCWSTR::from_raw(pswzservername),
             nserverport,
@@ -196,9 +198,92 @@ pub extern "system" fn EllHttpConnect(
             server_name = lp2str(pswzservername),
             server_port = Value::Integer(nserverport.into()),
             reserved = Value::Integer(dwreserved.into()),
-            out_connection = Value::Integer((connection as u32).into())
+            out_connection = Value::Integer((out_connection as u32).into())
         );
 
-        connection
+        out_connection
+    }
+}
+
+unsafe fn accept_types_to_value(
+    accept_types: *const windows_strings::PCWSTR,
+) -> Value {
+    if accept_types.is_null() {
+        return Value::Null;
+    }
+
+    let mut values = Vec::new();
+    let mut i = 0;
+
+    unsafe {
+        while !(*accept_types.add(i)).is_null() {
+            values.push((*accept_types.add(i)).to_string().unwrap_or_default());
+            i += 1;
+        }
+    }
+
+    Value::Text(values.join(", "))
+}
+
+pub async fn ell_http_open_request(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS http_open_request(
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at          INTEGER NOT NULL,
+            hconnect            INTEGER NOT NULL,
+            verb                TEXT NOT NULL,
+            object_name         TEXT NOT NULL,
+            version             TEXT,
+            referrer            TEXT NOT NULL,
+            accept_types        TEXT,
+            flags               INTEGER NOT NULL,
+            out_request         INTEGER NOT NULL,
+            consumed            BOOLEAN DEFAULT FALSE NOT NULL
+        )",
+        (),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn EllHttpOpenRequest(
+    hconnect: *mut c_void,
+    lpszverb: Lpcwstr,
+    lpszobjectname: Lpcwstr,
+    lpszversion: Lpcwstr,
+    lpszreferrer: Lpcwstr,
+    lplpszaccepttypes: *const windows_strings::PCWSTR,
+    dwflags: WINHTTP_OPEN_REQUEST_FLAGS,
+) -> *mut c_void
+{
+    unsafe {
+        let out_request = WinHttpOpenRequest(
+            hconnect,
+            PCWSTR::from_raw(lpszverb),
+            PCWSTR::from_raw(lpszobjectname),
+            PCWSTR::from_raw(lpszversion),
+            PCWSTR::from_raw(lpszreferrer),
+            lplpszaccepttypes,
+            dwflags
+        );
+
+        log!("http_open_request",
+            hconnect = Value::Integer((hconnect as u32).into()),
+            verb = lp2str(lpszverb),
+            object_name = lp2str(lpszobjectname),
+            version = if lpszversion.is_null() {
+                Value::Null
+            } else {
+                lp2str(lpszversion)
+            },
+            referrer = lp2str(lpszreferrer),
+            accept_types = accept_types_to_value(lplpszaccepttypes),
+            flags = Value::Integer(dwflags.0.into()),
+            out_request = Value::Integer((out_request as u32).into())
+        );
+
+        out_request
     }
 }
