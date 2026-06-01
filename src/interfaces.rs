@@ -42,7 +42,7 @@ pub async fn db_setup_interfaces(conn: &Connection) -> Result<()> {
     ell_http_open_setup(conn).await?;
     ell_http_set_status_callback_setup(conn).await?;
     ell_http_connect_setup(conn).await?;
-    ell_http_open_request(conn).await?;
+    ell_http_open_request_setup(conn).await?;
     ell_http_set_timeouts_setup(conn).await?;
     Ok(())
 }
@@ -228,7 +228,7 @@ unsafe fn accept_types_to_value(
     Value::Text(values.join(", "))
 }
 
-pub async fn ell_http_open_request(conn: &Connection) -> Result<()> {
+pub async fn ell_http_open_request_setup(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS http_open_request(
             id                  INTEGER PRIMARY KEY,
