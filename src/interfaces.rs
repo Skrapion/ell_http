@@ -34,6 +34,7 @@ pub fn replacements() -> Vec<Replacement> {
         0x0095CC88 => EllHttpSetStatusCallback,
         0x0095CC18 => EllHttpConnect,
         0x0095CC38 => EllHttpOpenRequest,
+        0x0095CC90 => EllHttpSetTimeouts,
     ]
 }
 
@@ -42,6 +43,7 @@ pub async fn db_setup_interfaces(conn: &Connection) -> Result<()> {
     ell_http_set_status_callback_setup(conn).await?;
     ell_http_connect_setup(conn).await?;
     ell_http_open_request(conn).await?;
+    ell_http_set_timeouts_setup(conn).await?;
     Ok(())
 }
 
@@ -293,5 +295,63 @@ pub extern "system" fn EllHttpOpenRequest(
         );
 
         out_request
+    }
+}
+
+pub async fn ell_http_set_timeouts_setup(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS http_set_timeouts(
+            id                  INTEGER PRIMARY KEY,
+            created_at          INTEGER NOT NULL,
+            hinternet           INTEGER NOT NULL,
+            resolve_timeout     INTEGER NOT NULL,
+            connect_timeout     INTEGER NOT NULL,
+            send_timeout        INTEGER NOT NULL,
+            receive_timeout     INTEGER NOT NULL,
+            out_success         BOOLEAN NOT NULL,
+            consumed            BOOLEAN DEFAULT FALSE NOT NULL
+        )",
+        (),
+    )
+    .await?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_timeouts
+        ON http_set_timeouts(hinternet, resolve_timeout, connect_timeout, send_timeout, receive_timeout)",
+        (),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn EllHttpSetTimeouts(
+    hinternet: *mut c_void,
+    nresolvetimeout: i32,
+    nconnecttimeout: i32,
+    nsendtimeout: i32,
+    nreceivetimeout: i32,
+) -> BOOL
+{
+    unsafe {
+        let out_success = WinHttpSetTimeouts(
+            hinternet,
+            nresolvetimeout,
+            nconnecttimeout,
+            nsendtimeout,
+            nresolvetimeout
+        ).is_ok();
+
+        log!("http_set_timeouts",
+            hinternet = Value::Integer((hinternet as u32).into()),
+            resolve_timeout = Value::Integer(nresolvetimeout.into()),
+            connect_timeout = Value::Integer(nconnecttimeout.into()),
+            send_timeout = Value::Integer(nsendtimeout.into()),
+            receive_timeout = Value::Integer(nreceivetimeout.into()),
+            out_success = Value::Integer(out_success.into())
+        );
+
+        out_success.into()
     }
 }
