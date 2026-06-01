@@ -37,7 +37,7 @@ pub fn replacements() -> Vec<Replacement> {
     ]
 }
 
-pub async fn db_setup(conn: &Connection) -> Result<()> {
+pub async fn db_setup_interfaces(conn: &Connection) -> Result<()> {
     ell_http_open_setup(conn).await?;
     ell_http_set_status_callback_setup(conn).await?;
     ell_http_connect_setup(conn).await?;
@@ -51,7 +51,7 @@ type Lpcwstr = *const u16;
 pub async fn ell_http_open_setup(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS http_open (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              INTEGER PRIMARY KEY,
             created_at      INTEGER NOT NULL,
             agent           TEXT NOT NULL,
             access_type     INTEGER NOT NULL,
@@ -108,7 +108,7 @@ pub extern "system" fn EllHttpOpen(
 pub async fn ell_http_set_status_callback_setup(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS http_set_status_callback(
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                  INTEGER PRIMARY KEY,
             created_at          INTEGER NOT NULL,
             hinternet           INTEGER NOT NULL,
             internet_callback   INTEGER,
@@ -161,7 +161,7 @@ pub extern "system" fn EllHttpSetStatusCallback (
 pub async fn ell_http_connect_setup(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS http_connect(
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                  INTEGER PRIMARY KEY,
             created_at          INTEGER NOT NULL,
             hsession            INTEGER NOT NULL,
             server_name         TEXT NOT NULL,
@@ -228,7 +228,7 @@ unsafe fn accept_types_to_value(
 pub async fn ell_http_open_request(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS http_open_request(
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                  INTEGER PRIMARY KEY,
             created_at          INTEGER NOT NULL,
             hconnect            INTEGER NOT NULL,
             verb                TEXT NOT NULL,

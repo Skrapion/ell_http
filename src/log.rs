@@ -47,10 +47,29 @@ async fn create_db_conn() -> Result<(turso::Database, turso::Connection)> {
 
     let db = Builder::new_local(&format!("capture_{}.db", timestamp))
         .build()
-        .await?;
+        .await
+        .unwrap_or_else(|err| {
+            error_to_file(&err.to_string());
+            panic!();
+        });
 
     let conn = db.connect()?;
-    db_setup(&conn).await?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS master_log(
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at  INTEGER NOT NULL,
+            table_name  TEXT NOT NULL
+        )",
+        ()
+    )
+    .await
+    .unwrap_or_else(|err| {
+        error_to_file(&err.to_string());
+        0
+    });
+
+    db_setup_interfaces(&conn).await?;
 
     Ok((db, conn))
 }
@@ -85,11 +104,26 @@ async fn log_item(conn: &Connection, item: LogItem) {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let mut file_line = format!("{}: created_at: {}", item.table, timestamp).to_string();
+    let _ = conn.execute(
+        "INSERT INTO master_log (created_at, table_name) VALUES (?, ?)",
+        (
+            Value::Integer(timestamp.try_into().unwrap()), 
+            Value::Text(item.table.clone())
+        )
+    )
+    .await
+    .unwrap_or_else(|err| {
+        error_to_file(&err.to_string());
+        0
+    });
+    let id = conn.last_insert_rowid();
 
-    let mut cols = String::from("created_at");
-    let mut placeholders = String::from("?");
+    let mut file_line = format!("{}[{}]: created_at: {}", item.table, id, timestamp).to_string();
+
+    let mut cols = String::from("id, created_at");
+    let mut placeholders = String::from("?, ?");
     let mut args: SqlArgs = Vec::new();
+    args.push(Value::Integer(id));
     args.push(Value::Integer(timestamp.try_into().unwrap()));
 
     for arg in item.args {
