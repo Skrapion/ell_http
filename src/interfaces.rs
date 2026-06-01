@@ -65,12 +65,6 @@ pub async fn ell_http_open_setup(conn: &Connection) -> Result<()> {
     )
     .await?;
 
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_out_handle ON http_open(out_handle)",
-        (),
-    )
-    .await?;
-
     Ok(())
 }
 
@@ -174,6 +168,13 @@ pub async fn ell_http_connect_setup(conn: &Connection) -> Result<()> {
     )
     .await?;
 
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_connection 
+        ON http_connect(hsession, server_name, server_port)",
+        (),
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -240,6 +241,13 @@ pub async fn ell_http_open_request(conn: &Connection) -> Result<()> {
             out_request         INTEGER NOT NULL,
             consumed            BOOLEAN DEFAULT FALSE NOT NULL
         )",
+        (),
+    )
+    .await?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_request
+        ON http_open_request(hconnect, verb, object_name, version, referrer, accept_types, flags)",
         (),
     )
     .await?;
