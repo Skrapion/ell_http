@@ -549,6 +549,7 @@ dependencies = [
  "chrono",
  "crossbeam",
  "futures",
+ "inventory",
  "once_cell",
  "tokio",
  "turso",

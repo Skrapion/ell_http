@@ -1,5 +1,6 @@
 mod log;
 mod interfaces;
+mod interface_reg;
 
 use std::ptr::*;
 
@@ -12,7 +13,7 @@ use windows::Win32::System::SystemServices::*;
 use windows::Win32::System::Threading::*;
 
 use log::*;
-use interfaces::*;
+use interface_reg::*;
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllMain(
@@ -99,10 +100,10 @@ fn run_patch()
                 let destination = address + disp as isize;
 
                 for repl in replacements() {
-                    if destination as usize == repl.original_rva {
+                    if destination as usize == repl.rva {
                         patch_call(
                             p as *mut u8,
-                            repl.replacement,
+                            (repl.replacement)(),
                         );
                     }
                 }

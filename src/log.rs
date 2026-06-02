@@ -5,9 +5,8 @@ use std::time::SystemTime;
 use anyhow::Result;
 use chrono::Local;
 use turso::*;
-use windows::core::*;
 
-use crate::interfaces::*;
+use crate::interface_reg::*;
 
 pub struct LogItem {
     pub table: String,
@@ -32,16 +31,6 @@ macro_rules! log {
     }};
 }
 
-pub fn lp2str(ptr: *const u16) -> turso::Value {
-    if ptr.is_null() {
-        return Value::Text(String::new());
-    }
-    
-    unsafe {
-        Value::Text(PCWSTR::from_raw(ptr).display().to_string())
-    }
-}
-
 async fn create_db_conn() -> Result<(turso::Database, turso::Connection)> {
     let timestamp = Local::now().format("%Y-%m-%dT%H-%M-%S");
 
@@ -52,6 +41,8 @@ async fn create_db_conn() -> Result<(turso::Database, turso::Connection)> {
             error_to_file(&err.to_string());
             panic!();
         });
+
+    output_to_file(&format!("INFO: Created capture_{}.db", timestamp));
 
     let conn = db.connect()?;
 
