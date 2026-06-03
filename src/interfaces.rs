@@ -90,3 +90,49 @@ define_ell_http! {
         nreceivetimeout
     )
 }
+
+fn win_http_add_request_headers(
+    hrequest: *mut c_void,
+    lpszheaders: PCWSTR,
+    dwheaderslength: u32,
+    dwmodifiers: u32
+) -> windows::core::Result<()> {
+
+    unsafe {
+        let headers = if dwheaderslength == -1i32 as u32 {
+            let mut len = 0;
+
+            while *lpszheaders.0.add(len) != 0 {
+                len += 1;
+            }
+
+            std::slice::from_raw_parts(lpszheaders.0, len).to_vec()
+        } else {
+            std::slice::from_raw_parts(lpszheaders.0, dwheaderslength.try_into().unwrap()).to_vec()
+        };
+
+        WinHttpAddRequestHeaders(
+            hrequest,
+            &headers,
+            dwmodifiers
+        )
+    }
+}
+
+define_ell_http! {
+    0x0095CC08,
+    ell_http_add_request_headers,
+    win_http_add_request_headers,
+    (
+        hrequest: (*mut c_void),
+        lpszheaders: PCWSTR,
+        dwheaderslength: u32, 
+        dwmodifiers: u32
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest,
+        lpszheaders,
+        dwheaderslength,
+        dwmodifiers
+    )
+}
