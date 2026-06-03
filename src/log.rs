@@ -50,7 +50,8 @@ async fn create_db_conn() -> Result<(turso::Database, turso::Connection)> {
         "CREATE TABLE IF NOT EXISTS master_log(
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at  INTEGER NOT NULL,
-            table_name  TEXT NOT NULL
+            table_name  TEXT NOT NULL,
+            params      TEXT NOT NULL
         )",
         ()
     )
@@ -95,11 +96,25 @@ async fn log_item(conn: &Connection, item: LogItem) {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
+    let mut file_line = String::new();
+    let mut cols = String::from("id, created_at");
+    let mut placeholders = String::from("?, ?");
+    let mut args: SqlArgs = Vec::new();
+    args.push(Value::Integer(timestamp.try_into().unwrap()));
+
+    for arg in item.args {
+        file_line.push_str(&format!(", {}={:?}", arg.0, arg.1).to_string());
+        cols.push_str(&format!(", {}", arg.0).to_string());
+        placeholders.push_str(", ?");
+        args.push(arg.1);
+    }
+
     let _ = conn.execute(
-        "INSERT INTO master_log (created_at, table_name) VALUES (?, ?)",
+        "INSERT INTO master_log (created_at, table_name, params) VALUES (?, ?, ?)",
         (
             Value::Integer(timestamp.try_into().unwrap()), 
-            Value::Text(item.table.clone())
+            Value::Text(item.table.clone()),
+            Value::Text(file_line[2..].to_string()) // Remove from ", " from the front
         )
     )
     .await
@@ -109,20 +124,11 @@ async fn log_item(conn: &Connection, item: LogItem) {
     });
     let id = conn.last_insert_rowid();
 
-    let mut file_line = format!("{}[{}]: created_at: {}", item.table, id, timestamp).to_string();
-
-    let mut cols = String::from("id, created_at");
-    let mut placeholders = String::from("?, ?");
-    let mut args: SqlArgs = Vec::new();
-    args.push(Value::Integer(id));
-    args.push(Value::Integer(timestamp.try_into().unwrap()));
-
-    for arg in item.args {
-        file_line.push_str(&format!(", {}={:?}", arg.0, arg.1).to_string());
-        cols.push_str(&format!(", {}", arg.0).to_string());
-        placeholders.push_str(", ?");
-        args.push(arg.1);
-    }
+    args.insert(0, Value::Integer(id));
+    file_line.insert_str(
+        0, 
+        &format!("{}[{}]: created_at: {}, ", item.table, id, timestamp).to_string()
+    );
 
     output_to_file(&file_line);
 
