@@ -136,3 +136,47 @@ define_ell_http! {
         dwmodifiers
     )
 }
+
+unsafe fn win_http_set_option(
+    hinternet: *const c_void,
+    dwoption: u32,
+    lpbuffer: *mut c_void,
+    dwbufferlength: u32
+) -> windows::core::Result<()>
+{
+    let hinternet_opt = if hinternet.is_null() {
+        None
+    } else {
+        Some(hinternet)
+    };
+
+    unsafe {
+        let buffer_opt = if dwbufferlength == 0 {
+            None
+        } else {
+            Some(
+                std::slice::from_raw_parts(lpbuffer as *mut u8, dwbufferlength as usize).to_vec()
+            )
+        };
+        WinHttpSetOption(hinternet_opt, dwoption, buffer_opt.as_deref())
+    }
+}
+
+define_ell_http! {
+    0x0095CC80,
+    ell_http_set_option,
+    win_http_set_option,
+    (
+        hinternet: (*const c_void),
+        dwoption: u32,
+        lpbuffer: (*mut c_void),
+        dwbufferlength: u32, 
+    ) -> BOOL = (Result<()>),
+    index on(
+        hinternet,
+        dwoption,
+        lpbuffer,
+        dwbufferlength
+    )
+}
+
