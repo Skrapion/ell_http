@@ -1,5 +1,6 @@
 use std::os::raw::*;
 
+use base64::Engine as _;
 use turso::*;
 use windows::core::*;
 use windows::Win32::Networking::WinHttp::*;
@@ -169,7 +170,7 @@ define_ell_http! {
     (
         hinternet: (*const c_void),
         dwoption: u32,
-        lpbuffer: (*mut c_void),
+        lpbuffer: (*mut c_void) as (TEXT, dwbufferlength),
         dwbufferlength: u32, 
     ) -> BOOL = (Result<()>),
     index on(
@@ -180,3 +181,37 @@ define_ell_http! {
     )
 }
 
+unsafe fn win_http_query_option(
+    hinternet: *mut c_void,
+    dwoption: u32,
+    lpbuffer: *mut c_void,
+    dwbufferlength: *mut u32
+) -> windows::core::Result<()>
+{
+    unsafe {
+        let buffer_opt = if dwbufferlength.is_null() {
+            None
+        } else {
+            Some(lpbuffer)
+        };
+        WinHttpQueryOption(hinternet, dwoption, buffer_opt, dwbufferlength)
+    }
+}
+
+define_ell_http! {
+    0x0095CC58,
+    ell_http_query_option,
+    win_http_query_option,
+    (
+        hinternet: (*mut c_void),
+        dwoption: u32,
+        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength),
+        lpdwbufferlength: (*mut u32)
+    ) -> BOOL = (Result<()>),
+    index on(
+        hinternet,
+        dwoption,
+        lpbuffer,
+        lpdwbufferlength
+    )
+}

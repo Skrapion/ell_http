@@ -20,7 +20,10 @@ pub type SqlArgs = Vec<turso::Value>;
 
 #[macro_export]
 macro_rules! log {
-    ($table:expr, $($col:ident = $val:expr),* $(,)?) => {{
+    (
+        $table:expr, 
+        $($col:ident = $val:expr $(=> $as_ty:tt)?),* $(,)?
+    ) => {{
         let params = vec![
             $(
                 (stringify!($col).to_string(), $val),
