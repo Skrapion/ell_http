@@ -166,6 +166,7 @@ macro_rules! column_type {
     (WINHTTP_STATUS_CALLBACK) => { "INTEGER" };
     (WINHTTP_ACCESS_TYPE) => { "INTEGER" };
     (WINHTTP_OPEN_REQUEST_FLAGS) => { "INTEGER" };
+    (*mut WINHTTP_CURRENT_USER_IE_PROXY_CONFIG) => { "TEXT" };
     (BOOL) => { "BOOLEAN" };
     ($t:tt) => { "INTEGER" };
 }
@@ -254,6 +255,20 @@ macro_rules! log_value {
     };
     ($name:ident : WINHTTP_ACCESS_TYPE) => { Value::Integer($name.0.into()) };
     ($name:ident : WINHTTP_OPEN_REQUEST_FLAGS) => { Value::Integer($name.0.into()) };
+    ($name:ident : *mut WINHTTP_CURRENT_USER_IE_PROXY_CONFIG) => {
+        if $name.is_null() {
+            Value::Null
+        } else {
+            let byte_slice = std::slice::from_raw_parts(
+                $name as *const _ as *const u8, 
+                std::mem::size_of::<WINHTTP_CURRENT_USER_IE_PROXY_CONFIG>(),
+            );
+
+            Value::Text(
+                base64::engine::general_purpose::STANDARD.encode(byte_slice)
+            )
+        }
+    };
     ($name:ident : BOOL) => { Value::Integer($name.0.into()) };
     ($name:ident : $t:tt) => { Value::Integer(($name as i64).into()) };
 }

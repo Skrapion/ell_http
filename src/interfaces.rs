@@ -518,7 +518,6 @@ define_ell_http! {
     )
 }
 
-/*
 define_ell_http! {
     0x0095CC20,
     ell_http_get_ie_proxy_config_for_current_user,
@@ -527,4 +526,3 @@ define_ell_http! {
         pproxyconfig: (*mut WINHTTP_CURRENT_USER_IE_PROXY_CONFIG),
     ) -> BOOL = (Result<()>)
 }
-*/
