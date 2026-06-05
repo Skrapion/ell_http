@@ -427,3 +427,12 @@ define_ell_http! {
         dwcontext
     )
 }
+
+define_ell_http! {
+    0x0095CC10,
+    ell_http_close_handle,
+    WinHttpCloseHandle,
+    (
+        hinternet: (*mut c_void)
+    ) -> BOOL = (Result<()>)
+}
