@@ -367,3 +367,63 @@ define_ell_http! {
         lpdwbufferlength
     )
 }
+
+pub unsafe fn win_http_send_request (
+    hrequest: *mut c_void,
+    lpszheaders: PCWSTR,
+    dwheaderslength: u32,
+    lpoptional: *const c_void,
+    dwoptionallength: u32,
+    dwtotallength: u32,
+    dwcontext: usize,
+) -> windows::core::Result<()>
+{
+    let lpoptional_opt = if lpoptional.is_null() {
+        None
+    } else {
+        Some(lpoptional)
+    };
+
+    unsafe {
+        let lpszheaders_opt = if dwheaderslength == 0 {
+            None
+        } else {
+            Some(
+                std::slice::from_raw_parts(lpszheaders.0, dwheaderslength.try_into().unwrap()).to_vec()
+            )
+        };
+
+        WinHttpSendRequest(
+            hrequest,
+            lpszheaders_opt.as_deref(),
+            lpoptional_opt,
+            dwoptionallength,
+            dwtotallength,
+            dwcontext
+        )
+    }
+}
+
+define_ell_http! {
+    0x0095CC70,
+    ell_http_send_request,
+    win_http_send_request,
+    (
+        hrequest: (*mut c_void),
+        lpszheaders: PCWSTR,
+        dwheaderslength: u32,
+        lpoptional: (*const c_void),
+        dwoptionallength: u32,
+        dwtotallength: u32,
+        dwcontext: usize,
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest,
+        lpszheaders,
+        dwheaderslength,
+        lpoptional,
+        dwoptionallength,
+        dwtotallength,
+        dwcontext
+    )
+}
