@@ -480,3 +480,51 @@ define_ell_http! {
         lpdwnumberofbyteswritten
     )
 }
+
+define_ell_http! {
+    0x0095CC68,
+    ell_http_receive_response,
+    WinHttpReceiveResponse,
+    (
+        hrequest: (*mut c_void),
+        lpreserved: (*mut c_void),
+    ) -> BOOL = (Result<()>)
+}
+
+define_ell_http! {
+    0x0095CC48,
+    ell_http_query_data_available,
+    WinHttpQueryDataAvailable,
+    (
+        hrequest: (*mut c_void),
+        lpdwnumberofbytesavailable: (*mut u32),
+    ) -> BOOL = (Result<()>)
+}
+
+define_ell_http! {
+    0x0095CC60,
+    ell_http_read_data,
+    WinHttpReadData,
+    (
+        hrequest: (*mut c_void),
+        // NOTE: setting this to false outputs plaintext, which we may not actually want.
+        lpbuffer: (*mut c_void) as (TEXT, *lpdwnumberofbytesread, false),
+        dwnumberofbytestoread: u32,
+        lpdwnumberofbytesread: (*mut u32),
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest,
+        dwnumberofbytestoread
+    )
+}
+
+/*
+define_ell_http! {
+    0x0095CC20,
+    ell_http_get_ie_proxy_config_for_current_user,
+    WinHttpGetIEProxyConfigForCurrentUser,
+    (
+        pproxyconfig: (*mut WINHTTP_CURRENT_USER_IE_PROXY_CONFIG),
+    ) -> BOOL = (Result<()>)
+}
+*/
