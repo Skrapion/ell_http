@@ -436,3 +436,47 @@ define_ell_http! {
         hinternet: (*mut c_void)
     ) -> BOOL = (Result<()>)
 }
+
+unsafe fn win_http_write_data(
+    hrequest: *mut c_void,
+    lpbuffer: *const c_void,
+    dwnumberofbytestowrite: u32,
+    lpdwnumberofbyteswritten: *mut u32,
+) -> windows::core::Result<()>
+{
+    let lpbuffer_opt = {
+        if lpbuffer.is_null() {
+            None
+        } else {
+            Some(lpbuffer)
+        }
+    };
+
+    unsafe {
+        WinHttpWriteData(
+            hrequest,
+            lpbuffer_opt,
+            dwnumberofbytestowrite,
+            lpdwnumberofbyteswritten,
+        )
+    }
+}
+
+define_ell_http! {
+    0x0095CC98,
+    ell_http_write_data,
+    win_http_write_data,
+    (
+        hrequest: (*mut c_void),
+        // NOTE: setting this to false outputs plaintext, which we may not actually want.
+        lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestowrite, false),
+        dwnumberofbytestowrite: u32,
+        lpdwnumberofbyteswritten: (*mut u32),
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest,
+        lpbuffer,
+        dwnumberofbytestowrite,
+        lpdwnumberofbyteswritten
+    )
+}
