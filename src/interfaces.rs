@@ -138,6 +138,59 @@ define_ell_http! {
     )
 }
 
+unsafe fn win_http_query_headers(
+    hrequest: *mut c_void,
+    dwinfolevel: u32,
+    pwszname: PCWSTR,
+    lpbuffer: *mut c_void,
+    lpdwbufferlength: *mut u32,
+    lpdwindex: *mut u32,
+) -> windows::core::Result<()>
+{
+    let lpbuffer_opt = if lpbuffer.is_null() {
+        None
+    } else {
+        Some(lpbuffer)
+    };
+
+    unsafe {
+        WinHttpQueryHeaders(
+            hrequest,
+            dwinfolevel,
+            pwszname,
+            lpbuffer_opt,
+            lpdwbufferlength,
+            lpdwindex
+        )
+    }
+}
+
+define_ell_http! {
+    0x0095CC50,
+    ell_http_query_headers,
+    win_http_query_headers,
+    (
+        hrequest: (*mut c_void),
+        dwinfolevel: u32,
+        pwszname: PCWSTR,
+        lpbuffer: (*mut c_void) as (
+            TEXT, 
+            *lpdwbufferlength, 
+            (dwinfolevel & (WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_FLAG_SYSTEMTIME) != 0)
+        ),
+        lpdwbufferlength: (*mut u32),
+        lpdwindex: (*mut u32),
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest,
+        dwinfolevel,
+        pwszname,
+        lpbuffer,
+        lpdwbufferlength,
+        lpdwindex
+    )
+}
+
 unsafe fn win_http_set_option(
     hinternet: *const c_void,
     dwoption: u32,
@@ -170,7 +223,7 @@ define_ell_http! {
     (
         hinternet: (*const c_void),
         dwoption: u32,
-        lpbuffer: (*mut c_void) as (TEXT, dwbufferlength),
+        lpbuffer: (*mut c_void) as (TEXT, dwbufferlength, true),
         dwbufferlength: u32, 
     ) -> BOOL = (Result<()>),
     index on(
@@ -205,7 +258,7 @@ define_ell_http! {
     (
         hinternet: (*mut c_void),
         dwoption: u32,
-        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength),
+        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, true),
         lpdwbufferlength: (*mut u32)
     ) -> BOOL = (Result<()>),
     index on(

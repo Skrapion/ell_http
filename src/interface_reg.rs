@@ -10,7 +10,7 @@ macro_rules! define_ell_http {
         $rva:literal,
         $ell_fn:ident,
         $win_fn:ident,
-        ($($arg:ident : $arg_ty:tt $(as ($as_ty:tt, $($as_ty_len:expr)?))?),* $(,)?)
+        ($($arg:ident : $arg_ty:tt $(as ($as_ty:tt, $($as_ty_len:expr, $as_ty_encode:expr)?))?),* $(,)?)
         -> $ret_ty:tt $(= $ret_orig_type:tt)? 
         $(, index on ($($idx_col:ident),*))?
     ) => {
@@ -47,7 +47,7 @@ macro_rules! define_ell_http {
 
                 log!(
                     stringify!($ell_fn),
-                    $($arg = $crate::log_value!($arg: $arg_ty $(=> ($as_ty, $($as_ty_len)?))?),)*
+                    $($arg = $crate::log_value!($arg: $arg_ty $(=> ($as_ty, $($as_ty_len, $as_ty_encode)?))?),)*
                     result = $crate::log_value!(result: $ret_ty)
                 );
 
@@ -176,8 +176,8 @@ macro_rules! log_value {
     ($name:ident : ($($inner:tt)*)) => {
         $crate::log_value!($name : $($inner)*)
     };
-    ($name:ident : ($($inner:tt)*) => ($as_ty:tt, $as_ty_len:expr)) => {
-        $crate::log_value!($name : $($inner)* => ($as_ty, $as_ty_len))
+    ($name:ident : ($($inner:tt)*) => ($as_ty:tt, $as_ty_len:expr, $as_ty_encode:expr)) => {
+        $crate::log_value!($name : $($inner)* => ($as_ty, $as_ty_len, $as_ty_encode))
     };
     ($name:ident : *mut c_void) => {
         if $name.is_null() {
@@ -186,7 +186,7 @@ macro_rules! log_value {
             Value::Integer($name as usize as i64)
         }
     };
-    ($name:ident : *mut c_void => (TEXT, $as_ty_len:expr)) => {
+    ($name:ident : *mut c_void => (TEXT, $as_ty_len:expr, $as_ty_encode:expr)) => {
         if $name.is_null() {
             Value::Null
         } else {
@@ -195,12 +195,16 @@ macro_rules! log_value {
                 $as_ty_len.try_into().unwrap()
             );
 
-            Value::Text(
-                base64::engine::general_purpose::STANDARD.encode(byte_slice)
-            )
+            if $as_ty_encode == true {
+                Value::Text(
+                    base64::engine::general_purpose::STANDARD.encode(byte_slice)
+                )
+            } else {
+                Value::Text(str::from_utf8(byte_slice).unwrap().to_string())
+            }
         }
     };
-    ($name:ident : Option<*mut c_void> => (TEXT, $as_ty_len:expr)) => {
+    ($name:ident : Option<*mut c_void> => (TEXT, $as_ty_len:expr, $as_ty_encode:expr)) => {
         match $name {
             None => Value::Null,
             Some(opt) => {
@@ -209,9 +213,13 @@ macro_rules! log_value {
                     $as_ty_len.try_into().unwrap()
                 );
 
-                Value::Text(
-                    base64::engine::general_purpose::STANDARD.encode(byte_slice)
-                )
+                if $as_ty_encode == true {
+                    Value::Text(
+                        base64::engine::general_purpose::STANDARD.encode(byte_slice)
+                    )
+                } else {
+                    Value::Text(str::from_utf8(byte_slice).unwrap().to_string())
+                }
             }
 
         }
