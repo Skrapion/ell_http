@@ -559,3 +559,15 @@ define_ell_http! {
         pwszpassword
     )
 }
+
+define_ell_http! {
+    0x0095CC28,
+    ell_http_get_proxy_for_url,
+    WinHttpGetProxyForUrl,
+    (
+        hsession: (*mut c_void),
+        lpcwszurl: PCWSTR,
+        pautoproxyoptions: (*mut WINHTTP_AUTOPROXY_OPTIONS),
+        pproxyinfo: (*mut WINHTTP_PROXY_INFO),
+    ) -> BOOL = (Result<()>)
+}

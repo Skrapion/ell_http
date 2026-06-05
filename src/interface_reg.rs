@@ -167,6 +167,8 @@ macro_rules! column_type {
     (WINHTTP_ACCESS_TYPE) => { "INTEGER" };
     (WINHTTP_OPEN_REQUEST_FLAGS) => { "INTEGER" };
     (*mut WINHTTP_CURRENT_USER_IE_PROXY_CONFIG) => { "TEXT" };
+    (*mut WINHTTP_AUTOPROXY_OPTIONS) => { "TEXT" };
+    (*mut WINHTTP_PROXY_INFO) => { "TEXT" };
     (BOOL) => { "BOOLEAN" };
     ($t:tt) => { "INTEGER" };
 }
@@ -262,6 +264,34 @@ macro_rules! log_value {
             let byte_slice = std::slice::from_raw_parts(
                 $name as *const _ as *const u8, 
                 std::mem::size_of::<WINHTTP_CURRENT_USER_IE_PROXY_CONFIG>(),
+            );
+
+            Value::Text(
+                base64::engine::general_purpose::STANDARD.encode(byte_slice)
+            )
+        }
+    };
+    ($name:ident : *mut WINHTTP_AUTOPROXY_OPTIONS) => {
+        if $name.is_null() {
+            Value::Null
+        } else {
+            let byte_slice = std::slice::from_raw_parts(
+                $name as *const _ as *const u8, 
+                std::mem::size_of::<WINHTTP_AUTOPROXY_OPTIONS>(),
+            );
+
+            Value::Text(
+                base64::engine::general_purpose::STANDARD.encode(byte_slice)
+            )
+        }
+    };
+    ($name:ident : *mut WINHTTP_PROXY_INFO) => {
+        if $name.is_null() {
+            Value::Null
+        } else {
+            let byte_slice = std::slice::from_raw_parts(
+                $name as *const _ as *const u8, 
+                std::mem::size_of::<WINHTTP_PROXY_INFO>(),
             );
 
             Value::Text(
