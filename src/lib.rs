@@ -100,11 +100,13 @@ fn run_patch()
                 let destination = address + disp as isize;
 
                 for repl in replacements() {
-                    if destination as usize == repl.rva {
-                        patch_call(
-                            p as *mut u8,
-                            (repl.replacement)(),
-                        );
+                    if repl.rva != 0x0 {
+                        if destination as usize == repl.rva {
+                            patch_call(
+                                p as *mut u8,
+                                repl.replacement.unwrap()(),
+                            );
+                        }
                     }
                 }
             }

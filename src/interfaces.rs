@@ -1,4 +1,5 @@
 use std::os::raw::*;
+use std::sync::{Mutex, OnceLock};
 
 use base64::Engine as _;
 use turso::*;
@@ -7,6 +8,7 @@ use windows::Win32::Networking::WinHttp::*;
 
 use crate::define_ell_http;
 use crate::log;
+use crate::log_value;
 use crate::log::*;
 use crate::interface_reg::*;
 
@@ -23,10 +25,107 @@ define_ell_http! {
     ) -> (*mut c_void)
 }
 
+static STATUS_CALLBACK: OnceLock<Mutex<WINHTTP_STATUS_CALLBACK>> = OnceLock::new();
+
+impl DbSetupFns {
+    pub async fn ell_http_status_callback(conn: &turso::Connection) -> turso::Result<()> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ell_http_status_callback (
+                id INTEGER PRIMARY KEY,
+                created_at INTEGER NOT NULL,
+                hinternet INTEGER,
+                dwcontext INTEGER,
+                dwinternetstatus INTEGER,
+                lpstatusinformation INTEGER,
+                dwstatusinformationlength INTEGER,
+                result INTEGER,
+                consumed BOOLEAN DEFAULT FALSE NOT NULL)",
+            (),
+        ).await?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_http_status_callback ON ell_http_status_callback (
+                hinternet, dwcontext, dwinternetstatus, lpstatusinformation, dwstatusinformationlength
+            )",
+            ()
+        ).await?;
+
+        Ok(())
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn ell_http_status_callback(
+    hinternet: *mut c_void,
+    dwcontext: usize,
+    dwinternetstatus: u32,
+    lpstatusinformation: *mut c_void,
+    dwstatusinformationlength: u32
+)
+{
+    log!(
+        "ell_http_status_callback",
+        hinternet = log_value!(hinternet: *mut c_void),
+        dwcontext = log_value!(dwcontext: usize),
+        dwinternetstatus = log_value!(dwinternetstatus: u32),
+        lpstatusinformation = log_value!(lpstatusinformation: *mut c_void),
+        dwstatusinformationlength = log_value!(dwstatusinformationlength: u32),
+        result = Value::Null
+    );
+
+    let status_callback = STATUS_CALLBACK.get().unwrap().lock().unwrap();
+
+    unsafe {
+        status_callback.unwrap()(
+            hinternet,
+            dwcontext,
+            dwinternetstatus,
+            lpstatusinformation,
+            dwstatusinformationlength
+        );
+    }
+}
+
+inventory::submit! {
+    Replacement {
+        rva: 0x0,
+        replacement: None,
+        setup: |conn| Box::pin(DbSetupFns::ell_http_status_callback(conn)),
+    }
+}
+
+unsafe fn win_http_set_status_callback(
+    hinternet: *mut c_void,
+    lpfninternetcallback: WINHTTP_STATUS_CALLBACK,
+    dwnotificationflags: u32,
+    dwreserved: usize
+) -> WINHTTP_STATUS_CALLBACK
+{
+    let mut status_callback = STATUS_CALLBACK.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    let last_status_callback = *status_callback;
+    *status_callback = lpfninternetcallback;
+
+    unsafe {
+        let rc = WinHttpSetStatusCallback(
+            hinternet,
+            Some(ell_http_status_callback),
+            dwnotificationflags,
+            dwreserved
+        );
+
+        #[allow(unpredictable_function_pointer_comparisons)]
+        if rc == Some(std::mem::transmute(!0usize)) {
+            Some(std::mem::transmute(!0usize))
+        } else {
+            last_status_callback
+        }
+    }
+}
+
 define_ell_http! {
     0x0095CC88,
     ell_http_set_status_callback,
-    WinHttpSetStatusCallback,
+    win_http_set_status_callback,
     (
         hinternet: (*mut c_void),
         lpfninternetcallback: WINHTTP_STATUS_CALLBACK,

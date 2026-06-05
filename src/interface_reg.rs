@@ -58,7 +58,7 @@ macro_rules! define_ell_http {
         inventory::submit! {
             Replacement {
                 rva: $rva,
-                replacement: || $ell_fn as usize,
+                replacement: Some(|| $ell_fn as usize),
                 setup: |conn| Box::pin(DbSetupFns::$ell_fn(conn)),
             }
         }
@@ -113,7 +113,7 @@ pub type AsyncSetupFn = for<'a> fn(
 
 pub struct Replacement {
     pub rva: usize,                 // The original function address
-    pub replacement: fn() -> usize, // The address of the injected function
+    pub replacement: Option<fn() -> usize>, // The address of the injected function
     pub setup: AsyncSetupFn,        // A setup function to create the db table
 }
 
