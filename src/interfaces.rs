@@ -526,3 +526,36 @@ define_ell_http! {
         pproxyconfig: (*mut WINHTTP_CURRENT_USER_IE_PROXY_CONFIG),
     ) -> BOOL = (Result<()>)
 }
+
+define_ell_http! {
+    0x0095CC40,
+    ell_http_query_auth_schemas,
+    WinHttpQueryAuthSchemes,
+    (
+        hrequest: (*mut c_void),
+        lpdwsupportedschemes: (*mut u32),
+        lpdwfirstscheme: (*mut u32),
+        pdwauthtarget: (*mut u32),
+    ) -> BOOL = (Result<()>)
+}
+
+define_ell_http! {
+    0x0095CC78,
+    ell_http_set_credentials,
+    WinHttpSetCredentials,
+    (
+        hrequest: (*mut c_void),
+        authtargets: u32,
+        authscheme: u32,
+        pwszusername: PCWSTR,
+        pwszpassword: PCWSTR,
+        pauthparams: (*mut c_void),
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest,
+        authtargets,
+        authscheme,
+        pwszusername,
+        pwszpassword
+    )
+}
