@@ -362,7 +362,11 @@ define_ell_http! {
         lpbuffer: (*mut c_void) as (
             TEXT, 
             *lpdwbufferlength, 
-            (dwinfolevel & (WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_FLAG_SYSTEMTIME) != 0)
+            if dwinfolevel & (WINHTTP_QUERY_FLAG_NUMBER | WINHTTP_QUERY_FLAG_SYSTEMTIME) != 0 {
+                Encoding::Base64
+            } else {
+                Encoding::Utf16
+            }
         ),
         lpdwbufferlength: (*mut u32),
         lpdwindex: (*mut u32),
@@ -408,7 +412,7 @@ define_ell_http! {
     (
         hinternet: (*const c_void),
         dwoption: u32,
-        lpbuffer: (*mut c_void) as (TEXT, dwbufferlength, true),
+        lpbuffer: (*mut c_void) as (TEXT, dwbufferlength, Encoding::Base64),
         dwbufferlength: u32, 
     ) -> BOOL = (Result<()>),
     index on(
@@ -443,7 +447,7 @@ define_ell_http! {
     (
         hinternet: (*mut c_void),
         dwoption: u32,
-        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, true),
+        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, Encoding::Base64),
         lpdwbufferlength: (*mut u32)
     ) -> BOOL = (Result<()>),
     index on(
@@ -554,8 +558,8 @@ define_ell_http! {
     win_http_write_data,
     (
         hrequest: (*mut c_void),
-        // NOTE: setting this to false outputs plaintext, which we may not actually want.
-        lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestowrite, false),
+        // NOTE: There may be cases where we don't want this encoding
+        lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestowrite, Encoding::Utf8),
         dwnumberofbytestowrite: u32,
         lpdwnumberofbyteswritten: (*mut u32),
     ) -> BOOL = (Result<()>),
@@ -665,7 +669,7 @@ define_ell_http! {
     (
         hrequest: (*mut c_void),
         // NOTE: setting this to false outputs plaintext, which we may not actually want.
-        lpbuffer: (*mut c_void) as (TEXT, *lpdwnumberofbytesread, false),
+        lpbuffer: (*mut c_void) as (TEXT, *lpdwnumberofbytesread, Encoding::Utf8),
         dwnumberofbytestoread: u32,
         lpdwnumberofbytesread: (*mut u32),
     ) -> BOOL = (Result<()>),

@@ -2,6 +2,12 @@ use std::pin::Pin;
 
 use turso::*;
 
+pub enum Encoding {
+    Base64,
+    Utf8,
+    Utf16,
+}
+
 /// Call this for each of the functions we're mocking.
 /// See interfaces.rs
 #[macro_export]
@@ -155,6 +161,20 @@ macro_rules! convert_return {
     ($result_orig:ident :) => { $result_orig };
 }
 
+pub fn read_utf16_le(bytes: &[u8]) -> String {
+    // Group bytes into pairs of 2 and convert them into u16 elements
+    let u16_buffer: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|chunk| {
+            // Converts [u8; 2] to a single u16 value
+            u16::from_le_bytes([chunk[0], chunk[1]])
+        })
+        .collect();
+
+    // Decode the u16 vector into a standard UTF-8 Rust String
+    String::from_utf16(&u16_buffer).unwrap()
+}
+
 #[macro_export]
 macro_rules! column_type {
     ($t:tt as $explicit:tt) => { stringify!($explicit) };
@@ -198,12 +218,15 @@ macro_rules! log_value {
                 $as_ty_len.try_into().unwrap()
             );
 
-            if $as_ty_encode == true {
-                Value::Text(
-                    base64::engine::general_purpose::STANDARD.encode(byte_slice)
-                )
-            } else {
-                Value::Text(str::from_utf8(byte_slice).unwrap().to_string())
+            match $as_ty_encode {
+                Encoding::Base64 =>
+                    Value::Text(
+                        base64::engine::general_purpose::STANDARD.encode(byte_slice)
+                    ),
+                Encoding::Utf8 => 
+                    Value::Text(str::from_utf8(byte_slice).unwrap().to_string()),
+                Encoding::Utf16 => 
+                    Value::Text(read_utf16_le(byte_slice)),
             }
         }
     };
@@ -216,12 +239,15 @@ macro_rules! log_value {
                     $as_ty_len.try_into().unwrap()
                 );
 
-                if $as_ty_encode == true {
-                    Value::Text(
-                        base64::engine::general_purpose::STANDARD.encode(byte_slice)
-                    )
-                } else {
-                    Value::Text(str::from_utf8(byte_slice).unwrap().to_string())
+                match $as_ty_encode {
+                    Encoding::Base64 =>
+                        Value::Text(
+                            base64::engine::general_purpose::STANDARD.encode(byte_slice)
+                        ),
+                    Encoding::Utf8 => 
+                        Value::Text(str::from_utf8(byte_slice).unwrap().to_string()),
+                    Encoding::Utf16 => 
+                        Value::Text(read_utf16_le(byte_slice)),
                 }
             }
 
