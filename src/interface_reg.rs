@@ -238,7 +238,7 @@ macro_rules! log_value {
         if $name.is_null() {
             Value::Null
         } else {
-            Value::Integer($name as usize as i64)
+            Value::Integer(*$name as usize as i64)
         }
     };
     ($name:ident : PCWSTR) => {

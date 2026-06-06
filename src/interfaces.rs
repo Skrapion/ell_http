@@ -237,6 +237,56 @@ define_ell_http! {
     )
 }
 
+use popout::*;
+
+fn copy_to_mut_c_void_16(source_str: &str, dest_ptr: *mut c_void, max_len: usize) -> u32 {
+    // 1. Encode string to UTF-16 and add a null terminator
+    let mut utf16_vec: Vec<u16> = source_str.encode_utf16().collect();
+    utf16_vec.push(0);
+
+    // 2. Ensure we do not write past the allocated destination size
+    let bytes_to_copy = std::cmp::min(utf16_vec.len(), max_len) * std::mem::size_of::<u16>();
+
+    unsafe {
+        // 3. Copy the raw memory to the *mut c_void
+        std::ptr::copy_nonoverlapping(
+            utf16_vec.as_ptr() as *const c_void,
+            dest_ptr,
+            bytes_to_copy,
+        );
+    }
+
+    bytes_to_copy.try_into().unwrap()
+}
+
+fn copy_to_mut_c_void_8(source_str: &str, dest_ptr: *mut c_void, max_len: usize) -> u32 {
+    // 1. Convert to CString to ensure a null-terminated byte sequence
+    // This will fail if the internal string contains an unexpected null byte
+    if let Ok(c_str) = std::ffi::CString::new(source_str) {
+        let bytes = c_str.as_bytes_with_nul();
+        
+        // 2. Bound check the transfer size against your allocated memory
+        let bytes_to_copy = std::cmp::min(bytes.len(), max_len);
+
+        unsafe {
+            // 3. Copy the raw memory to the *mut c_void
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr() as *const c_void,
+                dest_ptr,
+                bytes_to_copy,
+            );
+        }
+
+        bytes_to_copy.try_into().unwrap()
+    } else {
+        0
+    }
+}
+
+fn should_inject() -> bool {
+    std::path::Path::new("inject.txt").exists()
+}
+
 unsafe fn win_http_query_headers(
     hrequest: *mut c_void,
     dwinfolevel: u32,
@@ -252,15 +302,52 @@ unsafe fn win_http_query_headers(
         Some(lpbuffer)
     };
 
+    // If I call this after WinHttpQueryHeaders it crashes. I'm not sure why.
+    let inject = should_inject();
+
     unsafe {
-        WinHttpQueryHeaders(
+        let rc = WinHttpQueryHeaders(
             hrequest,
             dwinfolevel,
             pwszname,
             lpbuffer_opt,
             lpdwbufferlength,
             lpdwindex
-        )
+        );
+
+        if inject {
+            if lpbuffer.is_null() {
+                //*lpdwbufferlength = *lpdwbufferlength + 1000;
+            } else if rc.is_ok() {
+                let byte_slice = std::slice::from_raw_parts(
+                    lpbuffer as *const u16, 
+                    (*lpdwbufferlength / 2).try_into().unwrap()
+                );
+
+                let mut data = String::from_utf16(byte_slice).unwrap().to_string();
+
+                popout::create_window(
+                    |ui| {
+                        ui.label("Header:");
+                        ui.separator();
+                        ui.text_edit_multiline(&mut data);
+                        if ui.button("Done").clicked() {
+                            return Some(());
+                        }
+                        None
+                    },
+                    WindowAttributes::default()
+                        .with_title("Header")
+                        .with_inner_size(LogicalSize::new(400, 400)),
+                )
+                .unwrap();
+
+                let byte_len = copy_to_mut_c_void_16(&data, lpbuffer, (*lpdwbufferlength / 2).try_into().unwrap());
+                *lpdwbufferlength = byte_len;
+            }
+        }
+
+        rc
     }
 }
 
@@ -285,7 +372,6 @@ define_ell_http! {
         dwinfolevel,
         pwszname,
         lpbuffer,
-        lpdwbufferlength,
         lpdwindex
     )
 }
@@ -491,20 +577,91 @@ define_ell_http! {
     ) -> BOOL = (Result<()>)
 }
 
+unsafe fn win_http_query_data_available(
+    hrequest: *mut c_void,
+    lpdwnumberofbytesavailable: *mut u32,
+) -> windows::core::Result<()>
+{
+    unsafe {
+        let rc = WinHttpQueryDataAvailable(hrequest, lpdwnumberofbytesavailable);
+
+        /*
+        if should_inject() {
+            if rc.is_ok() {
+                *lpdwnumberofbytesavailable = *lpdwnumberofbytesavailable + 1000;
+            }
+        }
+        */
+
+        rc
+    }
+}
+
 define_ell_http! {
     0x0095CC48,
     ell_http_query_data_available,
-    WinHttpQueryDataAvailable,
+    win_http_query_data_available,
     (
         hrequest: (*mut c_void),
         lpdwnumberofbytesavailable: (*mut u32),
     ) -> BOOL = (Result<()>)
 }
 
+unsafe fn win_http_read_data(
+    hrequest: *mut c_void,
+    lpbuffer: *mut c_void,
+    dwnumberofbytestoread: u32,
+    lpdwnumberofbytesread: *mut u32,
+) -> windows::core::Result<()>
+{
+    unsafe {
+        let rc = WinHttpReadData
+        (
+            hrequest,
+            lpbuffer,
+            dwnumberofbytestoread,
+            lpdwnumberofbytesread,
+        );
+
+        if should_inject() {
+            if rc.is_ok() {
+                let byte_slice = std::slice::from_raw_parts(
+                    lpbuffer as *const u8, 
+                    (dwnumberofbytestoread).try_into().unwrap()
+                );
+
+                let mut data = str::from_utf8(byte_slice).unwrap().to_string();
+
+                popout::create_window(
+                    |ui| {
+                        ui.label("Data Read:");
+                        ui.separator();
+                        ui.text_edit_multiline(&mut data);
+                        if ui.button("Done").clicked() {
+                            return Some(());
+                        }
+                        None
+                    },
+                    WindowAttributes::default()
+                        .with_title("Data Read")
+                        .with_inner_size(LogicalSize::new(400, 400)),
+                )
+                .unwrap();
+
+                let byte_len = copy_to_mut_c_void_8(&data, lpbuffer, (dwnumberofbytestoread).try_into().unwrap());
+                *lpdwnumberofbytesread = byte_len;
+            }
+        }
+
+        rc
+    }
+}
+
 define_ell_http! {
     0x0095CC60,
     ell_http_read_data,
-    WinHttpReadData,
+    //WinHttpReadData,
+    win_http_read_data,
     (
         hrequest: (*mut c_void),
         // NOTE: setting this to false outputs plaintext, which we may not actually want.
