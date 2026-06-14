@@ -2,6 +2,9 @@ use std::pin::Pin;
 
 use turso::*;
 
+use crate::log::error_to_file;
+use crate::log::output_to_file;
+
 pub enum Encoding {
     Base64,
     Utf8,
@@ -40,6 +43,22 @@ macro_rules! define_ell_http {
             }
         }
 
+        impl DbResetFns {
+            pub async fn $ell_fn(conn: &turso::Connection) -> turso::Result<()> {
+                let total_updated = conn.execute(
+                    concat!(
+                        "UPDATE ", stringify!($ell_fn),
+                        " SET consumed = 0"
+                    ),
+                    (),
+                ).await?;
+        
+                error_to_file(&format!("Rows changed: {}", total_updated).to_string());
+
+                Ok(())
+            }
+        }
+
         #[unsafe(no_mangle)]
         pub extern "system" fn $ell_fn(
             $($arg: $crate::strip_parens!($arg_ty)),*
@@ -63,9 +82,11 @@ macro_rules! define_ell_http {
 
         inventory::submit! {
             Replacement {
+                name: stringify!($ell_fn),
                 rva: $rva,
                 replacement: Some(|| $ell_fn as usize),
                 setup: |conn| Box::pin(DbSetupFns::$ell_fn(conn)),
+                reset: |conn| Box::pin(DbResetFns::$ell_fn(conn)),
             }
         }
     };
@@ -95,13 +116,15 @@ macro_rules! create_index {
 /// up at runtime startup.
 
 /// Returns the collected Replacement info
-pub fn replacements() -> Vec<Replacement> {
+pub fn replacements() -> Vec<Replacement<'static>> {
     inventory::iter::<Replacement>
         .into_iter()
         .map(|entry| Replacement {
+            name: entry.name,
             rva: entry.rva,
             replacement: entry.replacement,
-            setup: entry.setup
+            setup: entry.setup,
+            reset: entry.reset,
         })
         .collect()
 }
@@ -113,17 +136,65 @@ pub async fn db_setup_interfaces(conn: &Connection) -> Result<()> {
     }
     Ok(())
 }
+
 pub type AsyncSetupFn = for<'a> fn(
     &'a turso::Connection,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
-pub struct Replacement {
+pub struct Replacement<'a> {
+    pub name: &'a str,
     pub rva: usize,                 // The original function address
     pub replacement: Option<fn() -> usize>, // The address of the injected function
     pub setup: AsyncSetupFn,        // A setup function to create the db table
+    pub reset: AsyncSetupFn,        // A function to reset the consumed columns
 }
 
-inventory::collect!(Replacement);
+inventory::collect!(Replacement<'static>);
+
+
+/// Functions for the replay feature
+pub async fn db_get_replay_conn() -> Option<(turso::Database, turso::Connection)>
+{
+    let replay_file = "replay.db";
+    if !std::path::Path::new(replay_file).exists() {
+        None
+    } else {
+        output_to_file("Opening replay.db");
+        let db = Builder::new_local(replay_file)
+            .build()
+            .await
+            .unwrap_or_else(|err| {
+                error_to_file(&err.to_string());
+                panic!();
+            });
+
+        let conn = db.connect().ok()?;
+
+        Some((db, conn))
+    }
+}
+
+/// Calls all the db reset functions that were collected.
+pub fn reset_replay() -> Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let handle = rt.handle();
+
+    handle.block_on(async || -> Result<()> {
+        if let Some((_, conn)) = db_get_replay_conn().await {
+            for entry in inventory::iter::<Replacement> {
+                error_to_file(&format!("Resetting {}", entry.name).to_string());
+
+                (entry.reset)(&conn).await?;
+            }
+        }
+
+        Ok(())
+    }())
+}
+
 
 /// Conversion functions and macros
 pub unsafe fn to_csv(vals: *const windows_strings::PCWSTR) -> Value {
@@ -330,4 +401,5 @@ macro_rules! log_value {
 }
 
 pub struct DbSetupFns;
+pub struct DbResetFns;
 

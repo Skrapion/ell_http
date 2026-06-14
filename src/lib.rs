@@ -24,6 +24,7 @@ pub extern "system" fn DllMain(
     if reason == DLL_PROCESS_ATTACH {
         run_patch();
         spawn_logger();
+        reset_replay().unwrap();
     }
 
     TRUE

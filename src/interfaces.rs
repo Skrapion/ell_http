@@ -61,6 +61,16 @@ impl DbSetupFns {
     }
 }
 
+impl DbResetFns {
+    pub async fn ell_http_status_callback(conn: &turso::Connection) -> turso::Result<()> {
+        let total_updated = conn.execute("UPDATE ell_http_status_callback SET consumed = 0", ()).await?;
+
+        error_to_file(&format!("Rows changed: {}", total_updated).to_string());
+
+        Ok(())
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn ell_http_status_callback(
     hinternet: *mut c_void,
@@ -95,9 +105,11 @@ pub extern "system" fn ell_http_status_callback(
 
 inventory::submit! {
     Replacement {
+        name: "ell_http_status_callback",
         rva: 0x0,
         replacement: None,
         setup: |conn| Box::pin(DbSetupFns::ell_http_status_callback(conn)),
+        reset: |conn| Box::pin(DbResetFns::ell_http_status_callback(conn)),
     }
 }
 
