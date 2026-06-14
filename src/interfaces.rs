@@ -22,7 +22,14 @@ define_ell_http! {
         pszproxyw: PCWSTR,
         pszproxybypassw: PCWSTR,
         dwflags: u32
-    ) -> (*mut c_void)
+    ) -> (*mut c_void),
+    index on(
+        pszagentw,
+        dwaccesstype,
+        pszproxyw,
+        pszproxybypassw,
+        dwflags
+    )
 }
 
 static STATUS_CALLBACK: OnceLock<Mutex<WINHTTP_STATUS_CALLBACK>> = OnceLock::new();
@@ -131,7 +138,11 @@ define_ell_http! {
         lpfninternetcallback: WINHTTP_STATUS_CALLBACK,
         dwnotificationflags: u32,
         dwreserved: usize
-    ) -> WINHTTP_STATUS_CALLBACK
+    ) -> WINHTTP_STATUS_CALLBACK,
+    index on(
+        hinternet,
+        dwnotificationflags
+    )
 }
 
 define_ell_http! {
@@ -524,7 +535,10 @@ define_ell_http! {
     WinHttpCloseHandle,
     (
         hinternet: (*mut c_void)
-    ) -> BOOL = (Result<()>)
+    ) -> BOOL = (Result<()>),
+    index on(
+        hinternet
+    )
 }
 
 unsafe fn win_http_write_data(
@@ -578,7 +592,10 @@ define_ell_http! {
     (
         hrequest: (*mut c_void),
         lpreserved: (*mut c_void),
-    ) -> BOOL = (Result<()>)
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest
+    )
 }
 
 unsafe fn win_http_query_data_available(
@@ -608,7 +625,10 @@ define_ell_http! {
     (
         hrequest: (*mut c_void),
         lpdwnumberofbytesavailable: (*mut u32),
-    ) -> BOOL = (Result<()>)
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest
+    )
 }
 
 unsafe fn win_http_read_data(
@@ -697,7 +717,10 @@ define_ell_http! {
         lpdwsupportedschemes: (*mut u32),
         lpdwfirstscheme: (*mut u32),
         pdwauthtarget: (*mut u32),
-    ) -> BOOL = (Result<()>)
+    ) -> BOOL = (Result<()>),
+    index on(
+        hrequest
+    )
 }
 
 define_ell_http! {
@@ -730,5 +753,9 @@ define_ell_http! {
         lpcwszurl: PCWSTR,
         pautoproxyoptions: (*mut WINHTTP_AUTOPROXY_OPTIONS),
         pproxyinfo: (*mut WINHTTP_PROXY_INFO),
-    ) -> BOOL = (Result<()>)
+    ) -> BOOL = (Result<()>),
+    index on(
+        hsession,
+        lpcwszurl
+    )
 }

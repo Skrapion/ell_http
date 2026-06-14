@@ -18,7 +18,7 @@ macro_rules! define_ell_http {
         $win_fn:ident,
         ($($arg:ident : $arg_ty:tt $(as ($as_ty:tt, $($as_ty_len:expr, $as_ty_encode:expr)?))?),* $(,)?)
         -> $ret_ty:tt $(= $ret_orig_type:tt)? 
-        $(, index on ($($idx_col:ident),*))?
+        $(, index on ($($idx_col:ident),* $(,)?))?
     ) => {
         impl DbSetupFns {
             pub async fn $ell_fn(conn: &turso::Connection) -> turso::Result<()> {
@@ -76,13 +76,13 @@ macro_rules! create_index {
     (
         $conn:ident, 
         $ell_fn:ident, 
-        $idx_first:ident,
-        $($idx_rest:ident),* $(,)?
+        $idx_first:ident
+        $(, $($idx_rest:ident),* $(,)?)?
     ) => {
         $conn.execute(concat!("CREATE INDEX IF NOT EXISTS idx_", stringify!($ell_fn),
             " ON ", stringify!($ell_fn), "(",
             stringify!($idx_first),
-            $(", ", stringify!($idx_rest)),*,
+            $($(", ", stringify!($idx_rest)),*,)?
             ")"),
             ()
         )
