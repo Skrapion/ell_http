@@ -961,12 +961,14 @@ dependencies = [
  "futures",
  "inventory",
  "once_cell",
+ "paste",
  "popout",
  "tokio",
  "turso",
  "windows 0.62.2",
  "windows-core 0.62.2",
  "windows-strings 0.5.1",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

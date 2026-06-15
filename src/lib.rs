@@ -25,6 +25,11 @@ pub extern "system" fn DllMain(
         run_patch();
         spawn_logger();
         reset_replay().unwrap();
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open("log.txt");
     }
 
     TRUE

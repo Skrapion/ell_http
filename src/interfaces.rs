@@ -6,6 +6,8 @@ use turso::*;
 use windows::core::*;
 use windows::Win32::Networking::WinHttp::*;
 
+use crate::add_index_to_vec;
+use crate::create_index_list_comma;
 use crate::define_ell_http;
 use crate::log;
 use crate::log_value;
@@ -17,22 +19,17 @@ define_ell_http! {
     ell_http_open,
     WinHttpOpen,
     (
-        pszagentw: PCWSTR,
-        dwaccesstype: WINHTTP_ACCESS_TYPE,
-        pszproxyw: PCWSTR,
-        pszproxybypassw: PCWSTR,
-        dwflags: u32
-    ) -> (*mut c_void),
-    index on(
-        pszagentw,
-        dwaccesstype,
-        pszproxyw,
-        pszproxybypassw,
-        dwflags
-    )
+        <index> pszagentw: PCWSTR,
+        <index> dwaccesstype: WINHTTP_ACCESS_TYPE,
+        <index> pszproxyw: PCWSTR,
+        <index> pszproxybypassw: PCWSTR,
+        <index> dwflags: u32
+    ) -> (*mut c_void)
 }
 
+// TODO: Allow multiple status callbacks and contexts
 static STATUS_CALLBACK: OnceLock<Mutex<WINHTTP_STATUS_CALLBACK>> = OnceLock::new();
+static STATUS_CALLBACK_CONTEXT: OnceLock<Mutex<usize>> = OnceLock::new();
 
 impl DbSetupFns {
     pub async fn ell_http_status_callback(conn: &turso::Connection) -> turso::Result<()> {
@@ -52,7 +49,7 @@ impl DbSetupFns {
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_http_status_callback ON ell_http_status_callback (
-                hinternet, dwcontext, dwinternetstatus, lpstatusinformation, dwstatusinformationlength
+                hinternet, dwinternetstatus
             )",
             ()
         ).await?;
@@ -73,33 +70,160 @@ impl DbResetFns {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn ell_http_status_callback(
-    hinternet: *mut c_void,
+    mut hinternet: *mut c_void,
     dwcontext: usize,
-    dwinternetstatus: u32,
-    lpstatusinformation: *mut c_void,
-    dwstatusinformationlength: u32
+    mut dwinternetstatus: u32,
+    mut lpstatusinformation: *mut c_void,
+    mut dwstatusinformationlength: u32
 )
 {
-    log!(
-        "ell_http_status_callback",
-        hinternet = log_value!(hinternet: *mut c_void),
-        dwcontext = log_value!(dwcontext: usize),
-        dwinternetstatus = log_value!(dwinternetstatus: u32),
-        lpstatusinformation = log_value!(lpstatusinformation: *mut c_void),
-        dwstatusinformationlength = log_value!(dwstatusinformationlength: u32),
-        result = Value::Null
-    );
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let handle = rt.handle();
 
-    let status_callback = STATUS_CALLBACK.get().unwrap().lock().unwrap();
-
-    unsafe {
-        status_callback.unwrap()(
-            hinternet,
-            dwcontext,
-            dwinternetstatus,
-            lpstatusinformation,
-            dwstatusinformationlength
+    let replay_results = handle.block_on(async || -> turso::Result<Option<(
+        Value,
+        //Value,
+        Value,
+        Value,
+        Value,
+    )>> 
+    {
+        let query = concat!(
+            "UPDATE ell_http_status_callback ",
+            " SET consumed = true",
+            " WHERE id = (",
+                "SELECT id",
+                " FROM ell_http_status_callback ",
+                " WHERE consumed IS FALSE ", 
+                " AND hinternet IS ? ",
+                " AND dwinternetstatus IS ? ",
+                " ORDER BY id ASC",
+                " LIMIT 1",
+            ")",
+            " RETURNING hinternet, dwcontext, dwinternetstatus, lpstatusinformation, dwstatusinformationlength"
         );
+        error_to_file(&format!("CP1: {}", query));
+
+        //error_to_file(&format!("CP1.a: {:?}", log_value!($arg : $arg_ty)));
+
+        if let Some((_, conn)) = db_get_replay_conn().await {
+            let mut query_params = Vec::<Value>::new();
+
+            #[allow(unused_unsafe)]
+            unsafe {
+                add_index_to_vec!(
+                    query_params, 
+                    index,
+                    hinternet,
+                    (*mut c_void)
+                );
+                add_index_to_vec!(
+                    query_params, 
+                    index,
+                    dwinternetstatus,
+                    (u32)
+                );
+            }
+
+            for val in &query_params {
+                error_to_file(&format!("CP1.a: {:?}", val));
+            }
+
+            #[allow(unused_unsafe)]
+            let mut rows = unsafe {
+                conn.query(query, query_params).await?
+            };
+
+            error_to_file("CP2");
+
+            if let Some(row) = rows.next().await? {
+                error_to_file("CP3");
+                let hinternet: Value = row.get_value(0)?;
+                //let dwcontext: Value = row.get_value(1)?;
+                let dwinternetstatus: Value = row.get_value(2)?;
+                let lpstatusinformation: Value = row.get_value(3)?;
+                let dwstatusinformationlength: Value = row.get_value(4)?;
+
+                Ok(Some((
+                    hinternet,
+                    //dwcontext,
+                    dwinternetstatus,
+                    lpstatusinformation,
+                    dwstatusinformationlength,
+                )))
+            } else {
+                error_to_file("CP4");
+                Err(turso::Error::Error(format!("Out of replay data in {}", stringify!($ell_fn)).to_string()))
+            }
+        } else {
+            Ok(None)
+        }
+    }()).unwrap();
+
+    if let Some((
+        temp_hinternet,
+        //temp_dwcontext,
+        temp_dwinternetstatus,
+        temp_lpstatusinformation,
+        temp_dwstatusinformationlength,
+    )) = replay_results {
+        error_to_file("CPA");
+        hinternet = *temp_hinternet.as_integer().unwrap() as usize as *mut c_void;
+        //hinternet = *temp_hinternet.as_integer().unwrap()
+        //    as *const i64 as *mut i64 as *mut c_void;
+        error_to_file("CPA.1");
+        //dwcontext = *temp_dwcontext.as_integer().unwrap() as usize;
+        dwinternetstatus = *temp_dwinternetstatus.as_integer().unwrap() as u32;
+        error_to_file("CPA.2");
+        if let Some(val) = temp_lpstatusinformation.as_integer() {
+            lpstatusinformation = *val as usize as *mut c_void;
+        } else {
+            lpstatusinformation = std::ptr::null_mut();
+        }
+        error_to_file("CPA.3");
+        dwstatusinformationlength = *temp_dwstatusinformationlength.as_integer().unwrap() as u32;
+        error_to_file("CPA.4");
+
+        let status_callback = STATUS_CALLBACK.get().unwrap().lock().unwrap();
+        error_to_file("CPA.5");
+        let status_callback_context = STATUS_CALLBACK_CONTEXT.get().unwrap().lock().unwrap();
+
+        error_to_file("CPB");
+        unsafe {
+            status_callback.unwrap()(
+                hinternet,
+                *status_callback_context,
+                dwinternetstatus,
+                lpstatusinformation,
+                dwstatusinformationlength
+            );
+        }
+        error_to_file("CPC");
+    } else {
+        log!(
+            "ell_http_status_callback",
+            hinternet = log_value!(hinternet: *mut c_void),
+            dwcontext = log_value!(dwcontext: usize),
+            dwinternetstatus = log_value!(dwinternetstatus: u32),
+            lpstatusinformation = log_value!(lpstatusinformation: *mut c_void),
+            dwstatusinformationlength = log_value!(dwstatusinformationlength: u32),
+            result = Value::Null
+        );
+
+        let status_callback = STATUS_CALLBACK.get().unwrap().lock().unwrap();
+
+        unsafe {
+            status_callback.unwrap()(
+                hinternet,
+                dwcontext,
+                dwinternetstatus,
+                lpstatusinformation,
+                dwstatusinformationlength
+            );
+        }
     }
 }
 
@@ -146,15 +270,11 @@ define_ell_http! {
     ell_http_set_status_callback,
     win_http_set_status_callback,
     (
-        hinternet: (*mut c_void),
+        <index> hinternet: (*mut c_void),
         lpfninternetcallback: WINHTTP_STATUS_CALLBACK,
-        dwnotificationflags: u32,
+        <index> dwnotificationflags: u32,
         dwreserved: usize
-    ) -> WINHTTP_STATUS_CALLBACK,
-    index on(
-        hinternet,
-        dwnotificationflags
-    )
+    ) -> WINHTTP_STATUS_CALLBACK
 }
 
 define_ell_http! {
@@ -162,12 +282,11 @@ define_ell_http! {
     ell_http_connect,
     WinHttpConnect,
     (
-        hsession: (*mut c_void),
-        pswzservername: PCWSTR,
-        nserverport: u16,
+        <index> hsession: (*mut c_void),
+        <index> pswzservername: PCWSTR,
+        <index> nserverport: u16,
         dwreserved: u32,
-    ) -> (*mut c_void),
-    index on(hsession, pswzservername, nserverport)
+    ) -> (*mut c_void)
 }
 
 define_ell_http! {
@@ -175,23 +294,14 @@ define_ell_http! {
     ell_http_open_request,
     WinHttpOpenRequest,
     (
-        hconnect: (*mut c_void),
-        lpszverb: PCWSTR,
-        lpszobjectname: PCWSTR,
-        lpszversion: PCWSTR,
-        lpszreferrer: PCWSTR,
-        lplpszaccepttypes: (*const PCWSTR),
-        dwflags: WINHTTP_OPEN_REQUEST_FLAGS,
-    ) -> (*mut c_void),
-    index on(
-        hconnect, 
-        lpszverb, 
-        lpszobjectname, 
-        lpszversion, 
-        lpszreferrer, 
-        lplpszaccepttypes, 
-        dwflags
-    )
+        <index> hconnect: (*mut c_void),
+        <index> lpszverb: PCWSTR,
+        <index> lpszobjectname: PCWSTR,
+        <index> lpszversion: PCWSTR,
+        <index> lpszreferrer: PCWSTR,
+        <index> lplpszaccepttypes: (*const PCWSTR),
+        <index> dwflags: WINHTTP_OPEN_REQUEST_FLAGS,
+    ) -> (*mut c_void)
 }
 
 define_ell_http! {
@@ -199,19 +309,12 @@ define_ell_http! {
     ell_http_set_timeouts,
     WinHttpSetTimeouts,
     (
-        hinternet: (*mut c_void),
-        nresolvetimeout: i32,
-        nconnecttimeout: i32,
-        nsendtimeout: i32,
-        nreceivetimeout: i32,
-    ) -> BOOL = (Result<()>),
-    index on(
-        hinternet,
-        nresolvetimeout,
-        nconnecttimeout,
-        nsendtimeout,
-        nreceivetimeout
-    )
+        <index> hinternet: (*mut c_void),
+        <index> nresolvetimeout: i32,
+        <index> nconnecttimeout: i32,
+        <index> nsendtimeout: i32,
+        <index> nreceivetimeout: i32,
+    ) -> BOOL = (Result<()>)
 }
 
 fn win_http_add_request_headers(
@@ -247,17 +350,11 @@ define_ell_http! {
     ell_http_add_request_headers,
     win_http_add_request_headers,
     (
-        hrequest: (*mut c_void),
-        lpszheaders: PCWSTR,
-        dwheaderslength: u32, 
-        dwmodifiers: u32
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest,
-        lpszheaders,
-        dwheaderslength,
-        dwmodifiers
-    )
+        <index> hrequest: (*mut c_void),
+        <index> lpszheaders: PCWSTR,
+        <index> dwheaderslength: u32, 
+        <index> dwmodifiers: u32
+    ) -> BOOL = (Result<()>)
 }
 
 use popout::*;
@@ -374,14 +471,16 @@ unsafe fn win_http_query_headers(
     }
 }
 
+// TODO: lpbuffer is technically an in/out variable.
+// We should store the input value and output value separately.
 define_ell_http! {
     0x0095CC50,
     ell_http_query_headers,
     win_http_query_headers,
     (
-        hrequest: (*mut c_void),
-        dwinfolevel: u32,
-        pwszname: PCWSTR,
+        <index> hrequest: (*mut c_void),
+        <index> dwinfolevel: u32,
+        <index> pwszname: PCWSTR,
         lpbuffer: (*mut c_void) as (
             TEXT, 
             *lpdwbufferlength, 
@@ -392,21 +491,14 @@ define_ell_http! {
             }
         ),
         lpdwbufferlength: (*mut u32),
-        lpdwindex: (*mut u32),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest,
-        dwinfolevel,
-        pwszname,
-        lpbuffer,
-        lpdwindex
-    )
+        <index> lpdwindex: (*mut u32),
+    ) -> BOOL = (Result<()>)
 }
 
 unsafe fn win_http_set_option(
     hinternet: *const c_void,
     dwoption: u32,
-    lpbuffer: *mut c_void,
+    lpbuffer: *const c_void,
     dwbufferlength: u32
 ) -> windows::core::Result<()>
 {
@@ -428,22 +520,18 @@ unsafe fn win_http_set_option(
     }
 }
 
+// TODO: In the replay, if dwoption is 45 (WINHTTP_OPTION_CONTEXT_VALUE)
+// then lpbuffer should be stored and passed into the status callback
 define_ell_http! {
     0x0095CC80,
     ell_http_set_option,
     win_http_set_option,
     (
-        hinternet: (*const c_void),
-        dwoption: u32,
-        lpbuffer: (*mut c_void) as (TEXT, dwbufferlength, Encoding::Base64),
-        dwbufferlength: u32, 
-    ) -> BOOL = (Result<()>),
-    index on(
-        hinternet,
-        dwoption,
-        lpbuffer,
-        dwbufferlength
-    )
+        <index> hinternet: (*const c_void),
+        <index> dwoption: u32,
+        lpbuffer: (*const c_void) as (TEXT, dwbufferlength, Encoding::Base64),
+        <index> dwbufferlength: u32, 
+    ) -> BOOL = (Result<()>)
 }
 
 unsafe fn win_http_query_option(
@@ -468,17 +556,11 @@ define_ell_http! {
     ell_http_query_option,
     win_http_query_option,
     (
-        hinternet: (*mut c_void),
-        dwoption: u32,
-        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, Encoding::Base64),
-        lpdwbufferlength: (*mut u32)
-    ) -> BOOL = (Result<()>),
-    index on(
-        hinternet,
-        dwoption,
-        lpbuffer,
-        lpdwbufferlength
-    )
+        <index> hinternet: (*mut c_void),
+        <index> dwoption: u32,
+        <index> lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, Encoding::Base64),
+        <index> lpdwbufferlength: (*mut u32)
+    ) -> BOOL = (Result<()>)
 }
 
 pub unsafe fn win_http_send_request (
@@ -522,23 +604,14 @@ define_ell_http! {
     ell_http_send_request,
     win_http_send_request,
     (
-        hrequest: (*mut c_void),
-        lpszheaders: PCWSTR,
-        dwheaderslength: u32,
-        lpoptional: (*const c_void),
-        dwoptionallength: u32,
-        dwtotallength: u32,
-        dwcontext: usize,
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest,
-        lpszheaders,
-        dwheaderslength,
-        lpoptional,
-        dwoptionallength,
-        dwtotallength,
-        dwcontext
-    )
+        <index> hrequest: (*mut c_void),
+        <index> lpszheaders: PCWSTR,
+        <index> dwheaderslength: u32,
+        <index> lpoptional: (*const c_void),
+        <index> dwoptionallength: u32,
+        <index> dwtotallength: u32,
+        <index> dwcontext: usize,
+    ) -> BOOL = (Result<()>)
 }
 
 define_ell_http! {
@@ -546,11 +619,8 @@ define_ell_http! {
     ell_http_close_handle,
     WinHttpCloseHandle,
     (
-        hinternet: (*mut c_void)
-    ) -> BOOL = (Result<()>),
-    index on(
-        hinternet
-    )
+        <index> hinternet: (*mut c_void)
+    ) -> BOOL = (Result<()>)
 }
 
 unsafe fn win_http_write_data(
@@ -583,18 +653,12 @@ define_ell_http! {
     ell_http_write_data,
     win_http_write_data,
     (
-        hrequest: (*mut c_void),
+        <index> hrequest: (*mut c_void),
         // NOTE: There may be cases where we don't want this encoding
-        lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestowrite, Encoding::Utf8),
-        dwnumberofbytestowrite: u32,
-        lpdwnumberofbyteswritten: (*mut u32),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest,
-        lpbuffer,
-        dwnumberofbytestowrite,
-        lpdwnumberofbyteswritten
-    )
+        <index> lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestowrite, Encoding::Utf8),
+        <index> dwnumberofbytestowrite: u32,
+        <index> lpdwnumberofbyteswritten: (*mut u32),
+    ) -> BOOL = (Result<()>)
 }
 
 define_ell_http! {
@@ -602,12 +666,9 @@ define_ell_http! {
     ell_http_receive_response,
     WinHttpReceiveResponse,
     (
-        hrequest: (*mut c_void),
+        <index> hrequest: (*mut c_void),
         lpreserved: (*mut c_void),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest
-    )
+    ) -> BOOL = (Result<()>)
 }
 
 unsafe fn win_http_query_data_available(
@@ -635,12 +696,9 @@ define_ell_http! {
     ell_http_query_data_available,
     win_http_query_data_available,
     (
-        hrequest: (*mut c_void),
+        <index> hrequest: (*mut c_void),
         lpdwnumberofbytesavailable: (*mut u32),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest
-    )
+    ) -> BOOL = (Result<()>)
 }
 
 unsafe fn win_http_read_data(
@@ -699,16 +757,12 @@ define_ell_http! {
     //WinHttpReadData,
     win_http_read_data,
     (
-        hrequest: (*mut c_void),
+        <index> hrequest: (*mut c_void),
         // NOTE: setting this to false outputs plaintext, which we may not actually want.
         lpbuffer: (*mut c_void) as (TEXT, *lpdwnumberofbytesread, Encoding::Utf8),
-        dwnumberofbytestoread: u32,
+        <index> dwnumberofbytestoread: u32,
         lpdwnumberofbytesread: (*mut u32),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest,
-        dwnumberofbytestoread
-    )
+    ) -> BOOL = (Result<()>)
 }
 
 define_ell_http! {
@@ -725,14 +779,11 @@ define_ell_http! {
     ell_http_query_auth_schemas,
     WinHttpQueryAuthSchemes,
     (
-        hrequest: (*mut c_void),
+        <index> hrequest: (*mut c_void),
         lpdwsupportedschemes: (*mut u32),
         lpdwfirstscheme: (*mut u32),
         pdwauthtarget: (*mut u32),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest
-    )
+    ) -> BOOL = (Result<()>)
 }
 
 define_ell_http! {
@@ -740,20 +791,13 @@ define_ell_http! {
     ell_http_set_credentials,
     WinHttpSetCredentials,
     (
-        hrequest: (*mut c_void),
-        authtargets: u32,
-        authscheme: u32,
-        pwszusername: PCWSTR,
-        pwszpassword: PCWSTR,
+        <index> hrequest: (*mut c_void),
+        <index> authtargets: u32,
+        <index> authscheme: u32,
+        <index> pwszusername: PCWSTR,
+        <index> pwszpassword: PCWSTR,
         pauthparams: (*mut c_void),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hrequest,
-        authtargets,
-        authscheme,
-        pwszusername,
-        pwszpassword
-    )
+    ) -> BOOL = (Result<()>)
 }
 
 define_ell_http! {
@@ -761,13 +805,9 @@ define_ell_http! {
     ell_http_get_proxy_for_url,
     WinHttpGetProxyForUrl,
     (
-        hsession: (*mut c_void),
-        lpcwszurl: PCWSTR,
+        <index> hsession: (*mut c_void),
+        <index> lpcwszurl: PCWSTR,
         pautoproxyoptions: (*mut WINHTTP_AUTOPROXY_OPTIONS),
         pproxyinfo: (*mut WINHTTP_PROXY_INFO),
-    ) -> BOOL = (Result<()>),
-    index on(
-        hsession,
-        lpcwszurl
-    )
+    ) -> BOOL = (Result<()>)
 }
