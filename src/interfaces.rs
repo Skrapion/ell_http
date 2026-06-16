@@ -77,6 +77,15 @@ pub extern "system" fn ell_http_status_callback(
     mut dwstatusinformationlength: u32
 )
 {
+    let status_callback= 
+        STATUS_CALLBACK.get_or_init(|| Mutex::new(None)).lock().unwrap();
+
+    if (*status_callback).is_none() {
+        return
+    }
+
+    error_to_file("ell_http_status_callback");
+
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -187,15 +196,25 @@ pub extern "system" fn ell_http_status_callback(
         dwstatusinformationlength = *temp_dwstatusinformationlength.as_integer().unwrap() as u32;
         error_to_file("CPA.4");
 
-        let status_callback = STATUS_CALLBACK.get().unwrap().lock().unwrap();
         error_to_file("CPA.5");
         let status_callback_context = STATUS_CALLBACK_CONTEXT.get().unwrap().lock().unwrap();
+        let dwcontext = *status_callback_context;
 
-        error_to_file("CPB");
+        log!(
+            "ell_http_status_callback",
+            hinternet = log_value!(hinternet: *mut c_void),
+            dwcontext = log_value!(dwcontext: usize),
+            dwinternetstatus = log_value!(dwinternetstatus: u32),
+            lpstatusinformation = log_value!(lpstatusinformation: *mut c_void),
+            dwstatusinformationlength = log_value!(dwstatusinformationlength: u32),
+            result = Value::Null
+        );
+
+        error_to_file(&format!("CPB: {:?}", dwcontext));
         unsafe {
             status_callback.unwrap()(
                 hinternet,
-                *status_callback_context,
+                dwcontext,
                 dwinternetstatus,
                 lpstatusinformation,
                 dwstatusinformationlength
@@ -212,8 +231,6 @@ pub extern "system" fn ell_http_status_callback(
             dwstatusinformationlength = log_value!(dwstatusinformationlength: u32),
             result = Value::Null
         );
-
-        let status_callback = STATUS_CALLBACK.get().unwrap().lock().unwrap();
 
         unsafe {
             status_callback.unwrap()(
@@ -558,8 +575,8 @@ define_ell_http! {
     (
         <index> hinternet: (*mut c_void),
         <index> dwoption: u32,
-        <index> lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, Encoding::Base64),
-        <index> lpdwbufferlength: (*mut u32)
+        lpbuffer: (*mut c_void) as (TEXT, *lpdwbufferlength, Encoding::Base64),
+        lpdwbufferlength: (*mut u32)
     ) -> BOOL = (Result<()>)
 }
 
@@ -657,7 +674,7 @@ define_ell_http! {
         // NOTE: There may be cases where we don't want this encoding
         <index> lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestowrite, Encoding::Utf8),
         <index> dwnumberofbytestowrite: u32,
-        <index> lpdwnumberofbyteswritten: (*mut u32),
+        lpdwnumberofbyteswritten: (*mut u32),
     ) -> BOOL = (Result<()>)
 }
 
@@ -759,7 +776,7 @@ define_ell_http! {
     (
         <index> hrequest: (*mut c_void),
         // NOTE: setting this to false outputs plaintext, which we may not actually want.
-        lpbuffer: (*mut c_void) as (TEXT, *lpdwnumberofbytesread, Encoding::Utf8),
+        lpbuffer: (*mut c_void) as (TEXT, dwnumberofbytestoread, Encoding::Utf8),
         <index> dwnumberofbytestoread: u32,
         lpdwnumberofbytesread: (*mut u32),
     ) -> BOOL = (Result<()>)

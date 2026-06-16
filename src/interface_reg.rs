@@ -77,8 +77,6 @@ macro_rules! define_ell_http {
             $(mut $arg: $crate::strip_parens!($arg_ty)),*
         ) -> $crate::strip_parens!($ret_ty)
         {
-            $crate::set_status_callback!($ell_fn $(, $arg)*);
-
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -93,6 +91,8 @@ macro_rules! define_ell_http {
             )>> 
             {
                 error_to_file(&format!("CP0: {}", stringify!($ell_fn)));
+                $crate::set_status_callback!($ell_fn $(, $arg)*);
+                $crate::set_callback_context!($ell_fn $(, $arg)*);
 
                 let query = concat!(
                     "UPDATE ", stringify!($ell_fn),
@@ -172,6 +172,7 @@ macro_rules! define_ell_http {
                     )*
                     temp_result
                 )) = replay_results {
+                    $crate::call_callback_sending_request!($ell_fn, temp_hrequest);
                     error_to_file("CP7");
                     $(
                         error_to_file("CP7.a");
@@ -182,13 +183,22 @@ macro_rules! define_ell_http {
                     )*
 
                     let ret = $crate::replay_result!(temp_result: $ret_ty);
+                    //let result = $crate::convert_return!(temp_result: $($ret_orig_type)?);
                     error_to_file(&format!("CP6: {:?}", ret));
 
                     // Hacks to put a bit of extra code in a few functions.
                     // TODO: Find a better way to do this.
+                    //$crate::call_callbacks!($ell_fn, temp_hinternet, temp_dwoption, temp_lpbuffer);
                     $crate::set_last_error!($ell_fn, temp_result, temp_lpbuffer);
-                    $crate::set_callback_context!($ell_fn, temp_dwoption, temp_lpbuffer);
-                    $crate::call_callbacks!($ell_fn, temp_hrequest);
+                    //$crate::call_callbacks!($ell_fn, temp_hrequest);
+                    //$crate::call_callbacks!($ell_fn, temp_hrequest, temp_dwoption, temp_lpbuffer);
+                    $crate::call_callback_request_sent!($ell_fn, temp_hrequest);
+
+                    log!(
+                        stringify!($ell_fn),
+                        $($arg = $crate::log_value!($arg: $arg_ty $(=> ($as_ty, $($as_ty_len, $as_ty_encode)?))?),)*
+                        result = $crate::log_value!(ret: $ret_ty)
+                    );
 
                     ret
                 } else {
@@ -309,20 +319,27 @@ macro_rules! set_last_error {
 macro_rules! set_callback_context {
     (
         ell_http_set_option,
-        $temp_dwoption:ident, 
-        $temp_lpbuffer:ident
+        $hinternet:ident,
+        $dwoption:ident, 
+        $lpbuffer:ident,
+        $dwbufferlength:ident
     ) => {
-        if $temp_dwoption == windows_sys::Win32::Networking::WinHttp::WINHTTP_OPTION_CONTEXT_VALUE.into() {
+        if $dwoption == 45{//windows_sys::Win32::Networking::WinHttp::WINHTTP_OPTION_CONTEXT_VALUE.into() {
+            /*
             let mut status_callback_context = 
                 STATUS_CALLBACK_CONTEXT.get_or_init(|| Mutex::new(0)).lock().unwrap();
-            if let Some(val) = $temp_lpbuffer.as_integer() {
-                *status_callback_context = *val as usize;
-            } else if $temp_lpbuffer.is_null() {
-                *status_callback_context = 0;
-            }
+            let mut context : u32 = 0;
+            let context_ptr = &mut context as *mut u32 as *mut c_void;
+            $crate::replay_value!(context_ptr = $temp_lpbuffer : *mut c_void => (TEXT, 4, crate::Encoding::Base64));
+            */
+            let mut status_callback_context = 
+                STATUS_CALLBACK_CONTEXT.get_or_init(|| Mutex::new(0)).lock().unwrap();
+            let context = $lpbuffer as *mut u32 as usize;
+            error_to_file(&format!("CPZ: {:?}", context));
+            *status_callback_context = context;
         }
     };
-    ($ell_fn:ident, $temp_dwoption:ident, $temp_lpbuffer:ident) => {};
+    ($ell_fn:ident $(, $other:tt)*) => {};
 }
 
 #[macro_export]
@@ -341,7 +358,7 @@ macro_rules! set_status_callback {
 }
 
 #[macro_export]
-macro_rules! call_callbacks {
+macro_rules! call_callback_sending_request {
     (
         ell_http_send_request,
         $hrequest:ident
@@ -354,39 +371,26 @@ macro_rules! call_callbacks {
             std::ptr::null_mut(),
             0
         );
-
-        ell_http_status_callback(
-            *$hrequest.as_integer().unwrap()
-                as *const i64 as *mut i64 as *mut c_void,
-            0,
-            windows_sys::Win32::Networking::WinHttp::WINHTTP_CALLBACK_STATUS_REQUEST_SENT.try_into().unwrap(),
-            std::ptr::null_mut(),
-            0
-        );
     };
+    ($ell_fn:ident $(, $other:tt)*) => {};
+}
+
+#[macro_export]
+macro_rules! call_callback_request_sent{
     (
-        ell_http_write_data,
+        ell_http_send_request,
         $hrequest:ident
     ) => {
         ell_http_status_callback(
             *$hrequest.as_integer().unwrap()
                 as *const i64 as *mut i64 as *mut c_void,
             0,
-            windows_sys::Win32::Networking::WinHttp::WINHTTP_CALLBACK_STATUS_SENDING_REQUEST.try_into().unwrap(),
-            std::ptr::null_mut(),
-            0
-        );
-
-        ell_http_status_callback(
-            *$hrequest.as_integer().unwrap()
-                as *const i64 as *mut i64 as *mut c_void,
-            0,
             windows_sys::Win32::Networking::WinHttp::WINHTTP_CALLBACK_STATUS_REQUEST_SENT.try_into().unwrap(),
             std::ptr::null_mut(),
             0
         );
     };
-    ($ell_fn:ident, $hrequest:ident) => {};
+    ($ell_fn:ident $(, $other:tt)*) => {};
 }
 
 /*
@@ -769,11 +773,15 @@ macro_rules! replay_value {
             if let Value::Text(ref val) = $name {
                 match $as_ty_encode {
                     Encoding::Base64 => {
+                        error_to_file(&format!("Decoding Base64 for replay: {:?} {:?}", val, $as_ty_len));
+
                         let mut decoded_bytes: Vec<u8> = base64::engine::general_purpose::STANDARD
                             .decode(std::string::String::from(val))
                             .expect("Failed to decode base64");
                         decoded_bytes.shrink_to_fit();
 
+                        error_to_file(&format!("Decoded bytes: {:?}", decoded_bytes));
+                        
                         std::ptr::copy_nonoverlapping(
                             decoded_bytes.as_ptr(),
                             $result as *mut u8,
@@ -783,10 +791,18 @@ macro_rules! replay_value {
                     Encoding::Utf8 => {
                         let str = std::string::String::from(val);
                         let c_str = std::ffi::CString::new(str).expect("Failed to create CString");
+
+                        let len = std::cmp::min(
+                            ($as_ty_len).try_into().unwrap(),
+                            (c_str.as_bytes_with_nul().len()).try_into().unwrap()
+                        );
+
+                        error_to_file(&format!("Converting to UTF-8 {}: {:?}", len, c_str));
+
                         std::ptr::copy_nonoverlapping(
                             c_str.as_ptr(),
                             $result as *mut i8,
-                            ($as_ty_len).try_into().unwrap()
+                            len
                         );
                     },
                     Encoding::Utf16 => {
@@ -967,9 +983,9 @@ macro_rules! replay_result {
     };
     ($name:ident : BOOL) => {
         if let Value::Integer(val) = $name {
-            (val != 0).into()
+            windows_core::BOOL(val.try_into().unwrap())
         } else {
-            false.into()
+            windows_core::BOOL(0)
         }
     };
 }
